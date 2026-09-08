@@ -33,7 +33,8 @@ Key build decisions (all in top-level `CMakeLists.txt`):
 
 Push to `main` (or a `v*` tag) triggers
 [`build-wheels.yml`](.github/workflows/build-wheels.yml), which builds
-28 wheels via cibuildwheel — 4 Python versions × 7 platform/arch combos:
+40 wheels via cibuildwheel — 5 Python versions (3.10–3.14) × 8
+platform/arch combos:
 
 | Platform | Wheel tag | Backend | Runner |
 |---|---|---|---|

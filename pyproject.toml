@@ -72,7 +72,9 @@ norecursedirs = ["legacy_spike"]
 
 # --- cibuildwheel: cross-platform wheel building ---
 #
-# Builds 4 wheels per Python version (3.10–3.13) = 16 total:
+# Builds 8 wheels per Python version (3.10–3.14) = 40 total (8 platform/arch
+# combos: macOS arm64/x86_64, Linux x86_64/aarch64 × manylinux/musllinux,
+# Windows AMD64/ARM64):
 #   macOS arm64 (Metal)    — no extra flags, Metal auto-detected
 #   Linux x86_64 (Vulkan)  — vulkan-headers + vulkan-loader-devel + glslc
 #                            from AlmaLinux 9 appstream repo (no LunarG repo
@@ -89,7 +91,7 @@ norecursedirs = ["legacy_spike"]
 # the build container — installed via before-all.
 
 [tool.cibuildwheel]
-build = "cp310-* cp311-* cp312-* cp313-*"
+build = "cp310-* cp311-* cp312-* cp313-* cp314-*"
 # musllinux (Alpine) — included since some MinerU users run Alpine-based
 # containers. musllinux has its own platform tag namespace, and auditwheel
 # auto-detects the right tag (musllinux_1_2_x86_64 etc).
