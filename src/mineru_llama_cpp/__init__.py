@@ -1,18 +1,36 @@
 import os
 from pathlib import Path
 
+# Windows has no RPATH ($ORIGIN / @loader_path). The .pyd's DLL dependencies
+# (llama.dll, ggml*.dll, mtmd.dll, ...) live in sibling bin/ and lib/
+# directories -- in the wheel (mineru_llama_cpp/{bin,lib}) or, for editable
+# inplace builds, in the build tree (<repo>/bin). Those directories must be on
+# the process DLL search path BEFORE importing _mineru_llama_cpp, which
+# triggers the .pyd load and its dependency resolution.
+#
+# The return value of os.add_dll_directory() MUST be kept alive: the returned
+# object's deallocation calls RemoveDllDirectory(), so discarding it (as this
+# module once did) removes the directory immediately -- a silent no-op. The
+# module-level list below pins the handles for the interpreter's lifetime.
+#
+# Note this does NOT make the directories visible to plain LoadLibraryW()
+# calls from native code (ggml's backend loader included) -- those only consult
+# the legacy search order unless the caller passes LOAD_LIBRARY_SEARCH_* flags.
+# Backend loading is fixed separately in C++ (see
+# patches/llama.cpp/0002-fix-windows-backend-dll-search.patch); the directories
+# registered here cover the .pyd/ctypes load paths.
+_dll_directory_handles: list = []
+
 if os.name == "nt":
-    # Windows has no RPATH ($ORIGIN / @loader_path). The .pyd's DLL
-    # dependencies (libllama.dll, libggml*.dll, etc.) live in a sibling
-    # bin/ directory -- either in the wheel (mineru_llama_cpp/bin/) or, for
-    # editable inplace builds, in the build tree (<repo>/bin/). Add those
-    # directories to the DLL search path BEFORE importing _mineru_llama_cpp,
-    # which triggers the .pyd load and its DT_NEEDED resolution. The three
-    # candidates mirror load_packaged_backends() in engine_core.cpp.
     _pkg = Path(__file__).resolve().parent
-    for _d in [_pkg / "bin", _pkg.parent / "bin", _pkg.parent.parent / "bin"]:
+    for _d in [
+        _pkg / "bin",
+        _pkg / "lib",
+        _pkg.parent / "bin",
+        _pkg.parent.parent / "bin",
+    ]:
         if _d.is_dir():
-            os.add_dll_directory(str(_d))
+            _dll_directory_handles.append(os.add_dll_directory(str(_d)))
 
 from .engine import Engine
 from .exceptions import (

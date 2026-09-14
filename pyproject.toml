@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "mineru-llama-cpp"
-version = "0.1.1"
+version = "0.1.2"
 description = "In-process llama.cpp VLM inference engine for MinerU"
 requires-python = ">=3.10"
 dependencies = []

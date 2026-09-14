@@ -1,0 +1,49 @@
+Fix: resolve Windows backend DLL dependencies from the backend's own directory
+
+Base commit: 9a3bf2b84923a85583b4ee8177b0cca13824bb03 (gguf-v0.19.0-1114-g9a3bf2b84)
+
+Root cause: on Windows, dl_load_library() loads backend DLLs (ggml-cpu.dll,
+ggml-vulkan.dll) with a plain LoadLibraryW() given an absolute path. The
+absolute path locates the backend itself, but the loader resolves the
+backend's dependent DLLs (ggml-base.dll, vulkan-1.dll, ...) using the
+process-wide legacy DLL search order (application dir, system32, ..., PATH)
+-- it does NOT search the directory the backend DLL itself was loaded from,
+and it does NOT consult directories added via AddDllDirectory (those are
+only consulted by loads that pass LOAD_LIBRARY_SEARCH_USER_DIRS, e.g.
+Python's extension imports and ctypes).
+
+Packaged layouts that keep the backend outside every searched directory
+(e.g. pip wheel: site-packages/mineru_llama_cpp/bin) therefore fail to load
+the backends entirely, surfacing later as:
+
+    make_cpu_buft_list: no CPU backend found
+
+Fix: use LoadLibraryExW with LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR so the
+backend's own directory participates in dependency resolution, plus
+LOAD_LIBRARY_SEARCH_DEFAULT_DIRS to preserve the normal safe search set
+(application dir, system32, and any AddDllDirectory user dirs).
+
+diff --git a/ggml/src/ggml-backend-dl.cpp b/ggml/src/ggml-backend-dl.cpp
+index a65cf0090..13dea48f6 100644
+--- a/ggml/src/ggml-backend-dl.cpp
++++ b/ggml/src/ggml-backend-dl.cpp
+@@ -7,7 +7,18 @@ dl_handle * dl_load_library(const fs::path & path) {
+     DWORD old_mode = SetErrorMode(SEM_FAILCRITICALERRORS);
+     SetErrorMode(old_mode | SEM_FAILCRITICALERRORS);
+ 
+-    HMODULE handle = LoadLibraryW(path.wstring().c_str());
++    // LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR: also resolve the backend's own
++    // dependencies from the backend DLL's directory. A plain LoadLibraryW
++    // with an absolute path does NOT search that directory for the backend's
++    // dependent DLLs -- it falls back to the process DLL search path
++    // (application dir, system32, PATH), which breaks packaged layouts where
++    // the backend and its dependency (ggml-base.dll etc.) live outside any
++    // searched directory (e.g. site-packages/mineru_llama_cpp/bin).
++    HMODULE handle = LoadLibraryExW(
++        path.wstring().c_str(),
++        nullptr,
++        LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS
++    );
+ 
+     SetErrorMode(old_mode);
+ 
