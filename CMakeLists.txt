@@ -1,4 +1,18 @@
 cmake_minimum_required(VERSION 3.15)
+
+# macOS 发布和源码构建统一使用 14.0 下限，在编译器初始化之前设置目标。
+if (CMAKE_HOST_APPLE AND (NOT CMAKE_SYSTEM_NAME OR CMAKE_SYSTEM_NAME STREQUAL "Darwin"))
+    if (NOT CMAKE_OSX_DEPLOYMENT_TARGET)
+        if (DEFINED ENV{MACOSX_DEPLOYMENT_TARGET} AND NOT "$ENV{MACOSX_DEPLOYMENT_TARGET}" STREQUAL "")
+            set(CMAKE_OSX_DEPLOYMENT_TARGET "$ENV{MACOSX_DEPLOYMENT_TARGET}" CACHE STRING "Minimum macOS version")
+        else()
+            set(CMAKE_OSX_DEPLOYMENT_TARGET "14.0" CACHE STRING "Minimum macOS version")
+        endif()
+    endif()
+    if (CMAKE_OSX_DEPLOYMENT_TARGET VERSION_LESS "14.0")
+        message(FATAL_ERROR "mineru-llama-cpp requires macOS >= 14.0")
+    endif()
+endif()
 project(mineru_llama_cpp CXX)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -109,6 +123,11 @@ set(GGML_NATIVE OFF CACHE BOOL "" FORCE)
 # import on machines without VS BuildTools installed.
 if (APPLE OR WIN32)
     set(GGML_OPENMP OFF CACHE BOOL "" FORCE)
+endif()
+
+# Apple Silicon wheel 携带完整源码，在运行时按系统和 GPU 能力编译 Shader。
+if (APPLE AND NOT CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64" AND NOT CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
+    set(GGML_METAL_EMBED_LIBRARY ON CACHE BOOL "Embed Metal shader sources" FORCE)
 endif()
 # On Linux, GGML_OPENMP defaults to ON (llama.cpp's own default) -- we
 # deliberately do NOT force it, so a builder can still override with

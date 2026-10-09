@@ -1,6 +1,6 @@
 Fix: CLI-tokenized task gets tokenized twice when deferred for a free slot
 
-Base commit: 9a3bf2b84923a85583b4ee8177b0cca13824bb03 (gguf-v0.19.0-1114-g9a3bf2b84)
+Base commit: 86a283532072722c5f3363d37d59a874d09fa99b
 
 Root cause: process_single_task() tokenizes task.cli_prompt via
 tokenize_cli_input() and never resets task.cli back to false. If no slot is
@@ -24,10 +24,10 @@ have to wait for a slot to free up return empty content instead of their
 generated text.
 
 diff --git a/tools/server/server-context.cpp b/tools/server/server-context.cpp
-index 744593c76..3b0c20a7f 100644
+index 1e3021d..538820c 100644
 --- a/tools/server/server-context.cpp
 +++ b/tools/server/server-context.cpp
-@@ -2225,6 +2225,9 @@ private:
+@@ -2452,6 +2452,9 @@ private:
              }
              task.cli_prompt.clear();
              task.cli_files.clear();

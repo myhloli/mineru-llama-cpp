@@ -31,10 +31,22 @@ ggml_metal_device_init: - the tensor API is not supported in this environment - 
 
 These messages come from an optional tensor API capability probe. Failure
 disables that feature while allowing the regular Metal kernels to run.
-On Apple M4 / macOS 26.6.2, enabling the probe with
+On the previous `9a3bf2b` build, Apple M4 / macOS 26.6.2 enabling the probe with
 `GGML_METAL_TENSOR_ENABLE=1` reproduces both warnings, followed by successful
 Metal initialization, `offloaded 25/25 layers to GPU`, and generation.
 This does not establish what happens on the reporter's M5 Pro / macOS 27.
+
+Current source pins `86a283532072722c5f3363d37d59a874d09fa99b`, including
+upstream's Metal 4.0 language selection for tensor probes and actual shader
+compilation. Rebuild/install a candidate wheel to use it. This is independent
+of the macOS 14 deployment floor: tensor support still requires a compatible
+runtime, device and successful probes. M5 validation remains pending.
+
+For temporary troubleshooting, set `GGML_METAL_TENSOR_DISABLE=1` before
+starting Python. It disables tensor acceleration while retaining ordinary
+Metal; use `n_gpu_layers=0` for an explicit CPU run. The diagnostic tool in
+README captures package provenance, full logs, generation and optional
+MinerU two-step extraction. See [the validation report](llama-upgrade-validation.md).
 
 The embedded shader includes `ggml-common.h` only in the non-embedded
 `#else` branch. Extracting it and calling `newLibraryWithSource` without

@@ -18,7 +18,8 @@ MMPROJ = os.environ.get(
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 _LAYOUT_IMAGE_SOURCE = Path(
-    "/Users/jinzhenj/Downloads/OmniDocBench/v1_2_0/magazine_TheEconomist.2023.12.23_page_052.png"
+    os.environ.get("MINERU_LLAMA_CPP_TEST_IMAGE",
+                   "/Users/jinzhenj/Downloads/OmniDocBench/v1_2_0/magazine_TheEconomist.2023.12.23_page_052.png")
 )
 _LAYOUT_IMAGE_1036 = FIXTURES_DIR / "layout_1036.png"
 
@@ -30,7 +31,7 @@ def layout_image_path() -> Path:
     resizes for its own layout-detection step; see the Phase E header note
     for why the exact size matters."""
     FIXTURES_DIR.mkdir(exist_ok=True)
-    if not _LAYOUT_IMAGE_1036.exists():
+    if not _LAYOUT_IMAGE_1036.exists() or "MINERU_LLAMA_CPP_TEST_IMAGE" in os.environ:
         if not _LAYOUT_IMAGE_SOURCE.exists():
             pytest.skip(f"source image not found: {_LAYOUT_IMAGE_SOURCE}")
         from PIL import Image
