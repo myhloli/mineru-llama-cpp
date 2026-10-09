@@ -7,7 +7,7 @@ stage_dir=/opt/mineru-gpu-backends
 work_dir=/opt/mineru-gpu-build
 export PATH="/opt/python/cp312-cp312/bin:$PATH"
 yum install -y git curl tar xz unzip make gcc gcc-c++
-python -m pip install 'cmake==3.31.8' ninja
+python -m pip install 'cmake==3.31.10' ninja
 export CMAKE_BUILD_PARALLEL_LEVEL="${CMAKE_BUILD_PARALLEL_LEVEL:-2}"
 mkdir -p "$tools_prefix" "$work_dir" "$stage_dir"
 

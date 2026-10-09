@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 import platform
 import shutil
+import subprocess
+import os
 import tarfile
 import tempfile
 import urllib.request
@@ -20,8 +22,9 @@ def download(url: str, path: Path, checksum: str | None = None) -> None:
         with path.open("rb") as source:
             if hashlib.file_digest(source, "sha256").hexdigest() == checksum:
                 return
-    with urllib.request.urlopen(url, timeout=120) as response, path.open("wb") as output:
-        shutil.copyfileobj(response, output)
+    # SDK CDN 拒绝默认 Python User-Agent；与既有 CI 一样使用系统 curl 下载。
+    subprocess.run(["curl.exe" if os.name == "nt" else "curl", "--fail", "--location", "--retry", "3",
+                    "--output", str(path), url], check=True)
     if checksum:
         with path.open("rb") as source:
             actual = hashlib.file_digest(source, "sha256").hexdigest()

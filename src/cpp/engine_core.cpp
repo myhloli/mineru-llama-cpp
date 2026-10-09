@@ -104,6 +104,24 @@ int read_n_ctx_train_from_gguf(const std::string & model_path) {
 // `GGML_ASSERT(dev && "CPU backend is not loaded")` (src/llama.cpp) --
 // a hard abort, not a catchable C++ exception. Finding this directory is
 // therefore load-bearing for every backend, not just optional accelerators.
+
+// 说明已打包却未注册的后端，区分缺少运行库与没有可用设备的回退原因。
+void log_packaged_backend_status(const std::filesystem::path & directory) {
+    for (const char * name : {"cuda", "sycl", "vulkan", "metal"}) {
+#if defined(_WIN32)
+        const auto module = directory / (std::string("ggml-") + name + ".dll");
+#else
+        const auto module = directory / (std::string("libggml-") + name + ".so");
+#endif
+        if (!std::filesystem::exists(module)) continue;
+        auto * reg = ggml_backend_reg_by_name(std::string(name) == "metal" ? "MTL" : name);
+        if (!reg) {
+            LOG_DBG("mineru-llama-cpp: packaged %s backend did not register; check missing/incompatible runtime libraries\n", name);
+        } else if (!ggml_backend_reg_dev_count(reg)) {
+            LOG_DBG("mineru-llama-cpp: packaged %s backend has no usable GPU; check drivers/devices\n", name);
+        }
+    }
+}
 #if defined(__linux__) || defined(__APPLE__)
 #if defined(__GNUC__) || defined(__clang__)
 __attribute__((noinline))
@@ -129,6 +147,7 @@ void load_packaged_backends() {
     for (const auto & candidate : candidates) {
         if (std::filesystem::is_directory(candidate, ec)) {
             ggml_backend_load_all_from_path(candidate.string().c_str());
+            log_packaged_backend_status(candidate);
             return;
         }
         ec.clear();
@@ -178,6 +197,7 @@ void load_packaged_backends() {
     for (const auto & candidate : candidates) {
         if (std::filesystem::is_directory(candidate, ec)) {
             ggml_backend_load_all_from_path(candidate.string().c_str());
+            log_packaged_backend_status(candidate);
             return;
         }
         ec.clear();
