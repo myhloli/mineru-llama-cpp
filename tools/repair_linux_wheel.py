@@ -2,6 +2,7 @@
 from __future__ import annotations
 import argparse
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -45,21 +46,29 @@ def inspect_wheel(wheel: Path) -> tuple[dict, set[str]]:
                 if source.read(4) != b"\x7fELF":
                     continue
             needed, versions = inspect_elf(path)
-            if any(name.startswith(("libcuda", "libcublas")) for name in needed):
-                raise RuntimeError(f"CUDA dependencies are not supported: {path.name} -> {needed}")
-            for prefix, maximum in (("GLIBC_", (2, 28)), ("GLIBCXX_", (3, 4, 25)), ("CXXABI_", (1, 3, 11))):
-                required = [tuple(map(int, value.removeprefix(prefix).split("."))) for value in versions if value.startswith(prefix) and value.removeprefix(prefix)[0].isdigit()]
-                if any(version > maximum for version in required):
-                    raise RuntimeError(f"{path.name} exceeds manylinux_2_28 {prefix} ABI floor: {versions}")
             external.update(name for name in needed if name.startswith(GPU_RUNTIME_PREFIXES))
             report[str(path.relative_to(root))] = {"needed": sorted(needed), "versions": sorted(versions)}
     return report, external
 
 
+def validate_report(report: dict) -> None:
+    """对全部 ELF 执行 manylinux_2_28 的 C/C++ 符号下限和无 CUDA 约束。"""
+    for path, info in report.items():
+        if any(name.startswith(("libcuda", "libcublas")) for name in info["needed"]):
+            raise RuntimeError(f"CUDA dependencies are not supported: {path} -> {info['needed']}")
+        for prefix, maximum in (("GLIBC_", (2, 28)), ("GLIBCXX_", (3, 4, 24)), ("CXXABI_", (1, 3, 11))):
+            required = [tuple(map(int, value.removeprefix(prefix).split("."))) for value in info["versions"] if value.startswith(prefix) and value.removeprefix(prefix)[0].isdigit()]
+            if any(version > maximum for version in required):
+                raise RuntimeError(f"{path} exceeds manylinux_2_28 {prefix} ABI floor: {info['versions']}")
+
+
 def repair(wheel: Path, destination: Path) -> None:
     """先审计原包，排除外部 GPU 库后修复，再审计最终发布包的全部 ELF。"""
     before, external = inspect_wheel(wheel)
-    diagnostics = Path(__file__).resolve().parents[1] / "build/ci-wheel-audits"
+    # cibuildwheel 会复制 /project；CI 证据须写回 /host 挂载的真实工作区。
+    workspace = os.environ.get("GITHUB_WORKSPACE")
+    root = Path("/host") / workspace.lstrip("/") if workspace and Path("/host").is_dir() else Path(__file__).resolve().parents[1]
+    diagnostics = root / "build/ci-wheel-audits"
     diagnostics.mkdir(parents=True, exist_ok=True)
     (diagnostics / (wheel.stem + ".json")).write_text(json.dumps({"external_gpu_runtime": sorted(external), "elf": before}, indent=2))
     command = ["auditwheel", "repair", "--plat", "manylinux_2_28_" + ("aarch64" if "aarch64" in wheel.name else "x86_64"),
@@ -68,8 +77,9 @@ def repair(wheel: Path, destination: Path) -> None:
         command.extend(["--exclude", name])
     command.append(str(wheel))
     try:
+        validate_report(before)
         subprocess.run(command, check=True)
-    except subprocess.CalledProcessError:
+    except (subprocess.CalledProcessError, RuntimeError):
         # 失败候选单独保存，不参与六平台发布集合；保留证据供完整 ABI 诊断。
         shutil.copy2(wheel, diagnostics / wheel.name)
         subprocess.run(["auditwheel", "show", str(wheel)], check=False)
@@ -80,6 +90,7 @@ def repair(wheel: Path, destination: Path) -> None:
     if len(repaired) != 1:
         raise RuntimeError(f"Expected one repaired wheel, got {repaired}")
     report, _ = inspect_wheel(repaired[0])
+    validate_report(report)
     # 报告写在 wheelhouse 之外，发布目录只收集真正的 wheel。
     audit_dir = destination.parent / "wheel-audits"
     audit_dir.mkdir(parents=True, exist_ok=True)

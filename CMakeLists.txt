@@ -251,6 +251,13 @@ endforeach()
 
 add_subdirectory(third_party/llama.cpp)
 
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # llama 的 random_device 依赖 GLIBCXX_3.4.25；静态链接其 C++ 运行库以满足 2.28 策略的 3.4.24 上限。
+    target_link_options(llama PRIVATE -static-libstdc++)
+    install(DIRECTORY "${CMAKE_SOURCE_DIR}/licenses/gcc-runtime/"
+        DESTINATION "mineru_llama_cpp/licenses/gcc-runtime")
+endif()
+
 # Bundle libgomp.so.1 into the Linux wheel. Done at top-level scope (after
 # add_subdirectory(third_party/llama.cpp)) so ggml's OpenMP state is visible.
 #

@@ -60,3 +60,11 @@ if [ "$(uname -m)" = x86_64 ]; then
     set -u
     python "$project_root/tools/build_gpu_backends.py" --backend sycl --stage "$stage_dir" --work "$work_dir/sycl"
 fi
+
+# 容器 /project 是源码副本；把完成的 SDK/MODULE 缓存保存回宿主工作区。
+if [ -n "${GITHUB_WORKSPACE:-}" ] && [ -d /host ]; then
+    durable_root="/host$GITHUB_WORKSPACE"
+    mkdir -p "$durable_root/.gpu-tools" "$durable_root/.gpu-stage"
+    cp -a "$tools_prefix/." "$durable_root/.gpu-tools/"
+    cp -a "$stage_dir/." "$durable_root/.gpu-stage/"
+fi
