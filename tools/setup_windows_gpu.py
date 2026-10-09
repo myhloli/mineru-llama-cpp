@@ -41,9 +41,15 @@ def main() -> None:
     subprocess.run([sys.executable, str(ROOT / "tools/build_level_zero.py"), "--prefix", str(level_zero),
                     "--work", str(work / "level-zero"), "--stage", str(stage)], check=True)
     os.environ["LEVEL_ZERO_V1_SDK_PATH"] = str(level_zero)
-    build_command = ["cmd.exe", "/d", "/c", f'call "{os.environ["ONEAPI_ROOT"]}\\setvars.bat" intel64 --force && '
-                      f'"{sys.executable}" "{ROOT / "tools/build_gpu_backends.py"}" --backend sycl --stage "{stage}" --work "{work / "sycl"}"']
-    subprocess.run(build_command, check=True)
+    setvars = Path(os.environ["ONEAPI_ROOT"]) / "setvars.bat"
+    if not setvars.is_file():
+        raise FileNotFoundError(f"oneAPI environment script missing: {setvars}")
+    # cmd.exe 不使用 Windows C argv 的反斜杠引号转义；通过脚本避免 list2cmdline 二次转义。
+    batch = work / "build-sycl.cmd"
+    batch.write_text(f'@echo off\ncall "{setvars}" intel64 --force\nif errorlevel 1 exit /b %errorlevel%\n'
+                     f'"{sys.executable}" "{ROOT / "tools/build_gpu_backends.py"}" --backend sycl --stage "{stage}" --work "{work / "sycl"}"\n'
+                     'exit /b %errorlevel%\n', newline="\r\n")
+    subprocess.run(["cmd.exe", "/d", "/c", str(batch)], check=True)
 
 
 if __name__ == "__main__":
