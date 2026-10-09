@@ -22,6 +22,9 @@ def main() -> None:
     stage = Path(os.environ["MINERU_EXTRA_BACKENDS_DIR"])
     work.mkdir(parents=True, exist_ok=True)
     vulkan = Path(os.environ["VULKAN_SDK"])
+    if (vulkan / "Bin/glslc.exe").exists() and all((stage / f"{backend}-build.json").exists() for backend in ("cuda", "sycl")):
+        print("Using cached Vulkan SDK and independently built GPU MODULEs")
+        return
     installer = work / "vulkan_sdk.exe"
     download("https://sdk.lunarg.com/sdk/download/1.4.350.0/windows/vulkan_sdk.exe", installer)
     run_installer([str(installer), "-t", str(vulkan), "--accept-licenses", "--default-answer", "--confirm-command", "install"])

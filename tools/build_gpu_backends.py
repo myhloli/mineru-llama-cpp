@@ -71,6 +71,14 @@ def bundle_sycl_runtime(stage: Path, root: Path) -> list[str]:
 def build(backend: str, stage: Path, work: Path) -> None:
     """使用独立编译器构建 MODULE，不暂存 ggml 公共库或开发产物。"""
     stage.mkdir(parents=True, exist_ok=True)
+    # 与主体配置保持相同补丁集合；重复构建时不重放已应用的补丁。
+    for patch in sorted((ROOT / "patches/llama.cpp").glob("*.patch")):
+        if patch.name.startswith("._"):
+            continue
+        prefix = ["git", "-C", str(ROOT / "third_party/llama.cpp"), "apply"]
+        if subprocess.run(prefix + ["--reverse", "--check", str(patch)], capture_output=True).returncode:
+            subprocess.run(prefix + ["--check", str(patch)], check=True)
+            subprocess.run(prefix + [str(patch)], check=True)
     args = ["cmake", "-S", str(ROOT / "third_party/llama.cpp"), "-B", str(work), "-G", "Ninja",
             "-DCMAKE_BUILD_TYPE=Release", "-DBUILD_SHARED_LIBS=ON", "-DGGML_BACKEND_DL=ON", "-DGGML_NATIVE=OFF",
             "-DGGML_CPU=OFF", "-DLLAMA_BUILD_TESTS=OFF", "-DLLAMA_BUILD_TOOLS=OFF", "-DLLAMA_BUILD_COMMON=OFF",

@@ -2,14 +2,21 @@
 # 在 manylinux_2_28 内构建 Vulkan 工具，并独立编译可选 GPU 后端。
 set -euo pipefail
 project_root="$(cd "$(dirname "$0")/.." && pwd)"
-tools_prefix=/opt/mineru-vulkan
-stage_dir=/opt/mineru-gpu-backends
+tools_prefix="$project_root/.gpu-tools"
+stage_dir="$project_root/.gpu-stage"
 work_dir=/opt/mineru-gpu-build
 export PATH="/opt/python/cp312-cp312/bin:$PATH"
 yum install -y git curl tar xz unzip make gcc gcc-c++
 python -m pip install 'cmake==3.31.10' ninja
 export CMAKE_BUILD_PARALLEL_LEVEL="${CMAKE_BUILD_PARALLEL_LEVEL:-2}"
 mkdir -p "$tools_prefix" "$work_dir" "$stage_dir"
+if [ -x "$tools_prefix/bin/glslc" ] && [ -f "$stage_dir/cuda-build.json" ]; then
+    if [ "$(uname -m)" = aarch64 ] || [ -f "$stage_dir/sycl-build.json" ]; then
+        # 缓存键包含后端源码、补丁和工具脚本；CMake install 仍会核验提交一致。
+        echo "Using cached Vulkan tools and independently built GPU MODULEs"
+        exit 0
+    fi
+fi
 
 # 固定源码版本，重复运行时复用已下载的工具源码。
 clone_tool() {

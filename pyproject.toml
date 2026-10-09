@@ -87,7 +87,7 @@ manylinux-x86_64-image = "manylinux_2_28"
 manylinux-aarch64-image = "manylinux_2_28"
 
 [tool.cibuildwheel.linux]
-environment = { SKBUILD_CMAKE_ARGS = "-DGGML_VULKAN=ON", VULKAN_SDK = "/opt/mineru-vulkan", CMAKE_PREFIX_PATH = "/opt/mineru-vulkan", MINERU_EXTRA_BACKENDS_DIR = "/opt/mineru-gpu-backends" }
+environment = { SKBUILD_CMAKE_ARGS = "-DGGML_VULKAN=ON", VULKAN_SDK = "/project/.gpu-tools", CMAKE_PREFIX_PATH = "/project/.gpu-tools", MINERU_EXTRA_BACKENDS_DIR = "/project/.gpu-stage" }
 before-all = "bash {project}/tools/setup_linux_gpu.sh"
 before-build = "rm -rf build"
 repair-wheel-command = "python {project}/tools/repair_linux_wheel.py --wheel {wheel} --destination {dest_dir}"
