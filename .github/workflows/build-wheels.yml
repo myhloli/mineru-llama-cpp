@@ -28,7 +28,7 @@ jobs:
           path: |
             .gpu-stage
             .gpu-tools
-          key: gpu-manylinux228-${{ runner.arch }}-sycl-vulkan-${{ hashFiles('third_party/llama.cpp/ggml/**', 'patches/llama.cpp/*.patch', 'tools/*gpu*', 'tools/download_sdk.py', 'tools/build_level_zero.py') }}
+          key: gpu-manylinux228-${{ runner.arch }}-sycl-vulkan-${{ hashFiles('llama-cpp-revision.txt', 'third_party/llama.cpp/ggml/**', 'patches/llama.cpp/*.patch', 'tools/setup_linux_gpu.sh', 'tools/build_gpu_backends.py', 'tools/build_level_zero.py') }}
       - name: Install cibuildwheel
         run: pip install cibuildwheel==4.3.0
       - name: Build wheels (Linux x86_64, CPU+Vulkan+SYCL)
@@ -53,7 +53,7 @@ jobs:
           path: |
             .gpu-stage
             .gpu-tools
-          key: gpu-manylinux228-${{ runner.arch }}-sycl-vulkan-${{ hashFiles('third_party/llama.cpp/ggml/**', 'patches/llama.cpp/*.patch', 'tools/*gpu*', 'tools/download_sdk.py', 'tools/build_level_zero.py') }}
+          key: gpu-manylinux228-${{ runner.arch }}-sycl-vulkan-${{ hashFiles('llama-cpp-revision.txt', 'third_party/llama.cpp/ggml/**', 'patches/llama.cpp/*.patch', 'tools/setup_linux_gpu.sh', 'tools/build_gpu_backends.py', 'tools/build_level_zero.py') }}
       - name: Install cibuildwheel
         run: pip install cibuildwheel==4.3.0
       - name: Build wheels (Linux aarch64, CPU+Vulkan)
@@ -166,7 +166,7 @@ jobs:
           path: |
             C:/VulkanSDK
             C:/mineru-gpu-backends
-          key: gpu-windows-amd64-sycl-vulkan-${{ hashFiles('third_party/llama.cpp/ggml/**', 'patches/llama.cpp/*.patch', 'tools/*gpu*', 'tools/download_sdk.py', 'tools/build_level_zero.py') }}
+          key: gpu-windows-amd64-sycl-vulkan-${{ hashFiles('llama-cpp-revision.txt', 'third_party/llama.cpp/ggml/**', 'patches/llama.cpp/*.patch', 'tools/setup_windows_gpu.py', 'tools/build_gpu_backends.py', 'tools/download_sdk.py', 'tools/build_level_zero.py') }}
       - name: Install cibuildwheel
         run: pip install cibuildwheel==4.3.0
       - name: Build wheels (Windows AMD64, CPU+Vulkan+SYCL)
