@@ -5,7 +5,16 @@ In-process llama.cpp VLM inference engine for MinerU, exposing a single
 Wraps a pinned build of [llama.cpp](https://github.com/ggml-org/llama.cpp)
 (no HTTP layer, no subprocess) via pybind11.
 
+Current source pins llama.cpp to `86a283532072722c5f3363d37d59a874d09fa99b`.
+macOS source builds and wheels require macOS 14 or newer. This source update
+requires rebuilding the native extension; released 0.1.2 wheels retain their
+original upstream version and deployment targets.
+
 ## Status
+
+The performance figures below describe earlier validated builds. The current
+upstream upgrade has its own [validation report](docs/llama-upgrade-validation.md);
+pending platforms are not covered by these historical measurements.
 
 **Verified on 4 platforms** (build + import + text generate + two-step
 document extraction):
@@ -38,8 +47,8 @@ platform/arch combos:
 
 | Platform | Wheel tag | Backend | Runner |
 |---|---|---|---|
-| macOS arm64 | `macosx_11_0_arm64` | Metal + CPU | macos-latest (Apple Silicon) |
-| macOS x86_64 | `macosx_10_15_x86_64` | CPU only | macos-14 + Rosetta 2 |
+| macOS arm64 | `macosx_14_0_arm64` | Metal + CPU | macos-26, Xcode 26.6 |
+| macOS x86_64 | `macosx_14_0_x86_64` | CPU only | macos-26 + Rosetta 2, Xcode 26.6 |
 | Linux x86_64 (glibc) | `manylinux_2_34_x86_64` | Vulkan + CPU | ubuntu-latest |
 | Linux aarch64 (glibc) | `manylinux_2_34_aarch64` | Vulkan + CPU | ubuntu-24.04-arm |
 | Linux x86_64 (musl) | `musllinux_1_2_x86_64` | CPU only | ubuntu-latest |
@@ -63,6 +72,13 @@ macOS x86_64 wheels are CPU-only because Apple deprecated Metal on
 Intel Macs; the wheel ships no `libggml-metal.dylib`. macOS arm64
 wheels include Metal by default.
 
+Every wheel runs a model-free installation check outside the checkout,
+including loading its packaged CPU backend. macOS wheels also audit all
+Mach-O deployment targets, architectures and library paths. An additional
+macos-15 / Xcode 16.4 job checks the older SDK. These checks do not establish
+model execution on every chip or macOS version; GPU execution is reported
+as untested when the runner exposes no GPU.
+
 Windows x86_64 uses MSVC (`ilammy/msvc-dev-cmd` GHA action + QtIF
 silent install for LunarG Vulkan SDK). Windows arm64 uses `clang-cl`
 on a native `windows-11-arm` runner — llama.cpp's ggml-cpu rejects
@@ -83,6 +99,8 @@ builds only recompile this library's own C++ files.
 
 Tests accept `MINERU_LLAMA_CPP_TEST_MODEL` and
 `MINERU_LLAMA_CPP_TEST_MMPROJ` to select local MinerU Q8_0 model files.
+Set `MINERU_LLAMA_CPP_TEST_IMAGE` to a real page image to run the image test
+without the original developer's local fixture.
 `tests/test_output_utf8.py` tests the production UTF-8 decoder without
 loading models; it builds a small test extension using the `[test]`
 dependencies and a C++ compiler. The deterministic generation regressions
@@ -240,8 +258,41 @@ than CPU for small models. Set `n_gpu_layers=0` to force CPU.
 
 ### macOS
 
-No special flags needed — Metal is auto-detected. Use Q8_0 models (BF16
-crashes on Metal). OpenMP is OFF (Metal GPU is the primary path).
+Requires macOS 14+. Apple Silicon wheels embed Metal shader source and
+compile it on the user's machine. M1-M4 default to ordinary Metal kernels;
+eligible M5 devices enable the tensor API only after runtime capability
+and compilation checks. Tensor compilation uses Metal 4.0 on supported
+systems; the package's minimum deployment target remains macOS 14.
+Intel wheels use CPU. Use Q8_0 models for both model and mmproj (see the
+existing BF16 limitation). OpenMP is OFF on macOS.
+Intel source builds default to a CPU instruction baseline compatible with
+Rosetta; explicit CMake feature flags can opt into AVX/FMA on capable hardware.
+
+To disable only the optional tensor API, set this before starting Python:
+
+```bash
+export GGML_METAL_TENSOR_DISABLE=1
+```
+
+Ordinary Metal GPU acceleration remains available. To force CPU, use
+`Engine(..., n_gpu_layers=0)`.
+
+Diagnose an installed wheel from outside the checkout, preserving complete
+initialization logs and structured results:
+
+```bash
+python /path/to/mineru-llama-cpp/tools/diagnose_metal.py \
+  --model /path/to/model-Q8_0.gguf --mmproj /path/to/mmproj-Q8_0.gguf \
+  --image /path/to/page.png --extract --mode default --output /tmp/metal-check
+```
+
+Modes are `default`, `disable`, `enable` and `cpu`; each starts a separate
+process. `--extract` additionally requires Pillow and mineru-vl-utils.
+`result.json` records the compiled upstream SHA, timings, peak RSS, tensor
+capability and actual layer offloading; `native.log` retains the raw logs.
+Tensor capability alone does not prove tensor kernels were executed.
+See [upgrade validation](docs/llama-upgrade-validation.md) for measured and
+pending combinations.
 
 ## Build configuration
 

@@ -79,3 +79,11 @@ async def test_async_engine_recovers_after_invalid_output_error(engine):
     )
     assert result.content
     assert result.content.encode("utf-8")
+
+
+def test_stream_recovers_after_invalid_output_error(engine):
+    """流式非法字节保留请求异常类别，释放 reader 后仍能生成合法内容。"""
+    with pytest.raises(InvalidRequestError):
+        list(engine.stream(_MESSAGES, _ByteTokenSampling(187, grammar="")))
+    result = engine.generate(_MESSAGES, SamplingParams(temperature=0.0, top_k=1, n_predict=4))
+    assert result.content.encode("utf-8")

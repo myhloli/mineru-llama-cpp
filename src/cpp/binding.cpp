@@ -2,7 +2,7 @@
 // mapping, and dict marshalling only. No business logic (design spec §4.1).
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
-#include <nlohmann/json.hpp>
+#include "json.h"
 
 #include "engine_core.h"
 #include "output_utf8.h"
@@ -10,7 +10,7 @@
 #include <string>
 
 namespace py = pybind11;
-using json = nlohmann::ordered_json;
+using json = common_json;
 
 namespace {
 
@@ -63,6 +63,18 @@ py::dict timings_to_dict(const EngineCore::Timings & t) {
     return d;
 }
 
+// 新 JSON 允许保存原始字节，绑定层继续把非法生成内容映射为原有请求异常。
+py::object decode_generated_content(const std::string & content, const std::string & finish_reason) {
+    try {
+        return mineru_llama_cpp::decode_output_content(content, finish_reason);
+    } catch (const py::error_already_set & error) {
+        if (error.matches(PyExc_UnicodeDecodeError)) {
+            raise_mapped_error("invalid_request_error", error.what());
+        }
+        throw;
+    }
+}
+
 py::dict generate_impl(EngineCore & self, const std::string & body) {
     EngineCore::GenerateResult r;
     try {
@@ -75,7 +87,7 @@ py::dict generate_impl(EngineCore & self, const std::string & body) {
         raise_from_error_json(r.error_json);
     }
     py::dict out;
-    out["content"]          = mineru_llama_cpp::decode_output_content(r.content, r.finish_reason);
+    out["content"]          = decode_generated_content(r.content, r.finish_reason);
     out["finish_reason"]    = r.finish_reason;
     out["tokens_evaluated"] = r.tokens_evaluated;
     out["tokens_predicted"] = r.tokens_predicted;
@@ -105,7 +117,7 @@ public:
             raise_from_error_json(c.error_json);
         }
         py::dict out;
-        out["delta"] = c.delta;
+        out["delta"] = decode_generated_content(c.delta, c.is_final ? c.finish_reason : "stop");
         if (c.is_final) {
             finished_ = true;
             out["finish_reason"]    = c.finish_reason;
@@ -141,6 +153,8 @@ PyStreamIterator generate_stream_impl(EngineCore & self, const std::string & bod
 } // namespace
 
 PYBIND11_MODULE(_mineru_llama_cpp, m) {
+    // 记录实际编译的上游提交，供安装包诊断使用。
+    m.attr("_llama_cpp_commit") = MINERU_LLAMA_CPP_LLAMA_COMMIT;
     py::class_<PyStreamIterator>(m, "_StreamIterator")
         .def("__iter__", [](PyStreamIterator & self) -> PyStreamIterator & { return self; })
         .def("__next__", &PyStreamIterator::next);

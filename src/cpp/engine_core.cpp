@@ -26,7 +26,7 @@
 // uses GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS) +
 // GetModuleFileNameW() on a stable anchor function's address.
 
-using json = nlohmann::ordered_json;
+using json = common_json;
 
 namespace {
 
@@ -261,6 +261,8 @@ EngineCore::EngineCore(const std::string & model_path, const std::string & mmpro
     // inside ggml-cpu.c, regardless of how many cores are actually
     // available.
     postprocess_cpu_params(params_.cpuparams, nullptr);
+    // 新上游在加载模型时创建批处理线程池，必须先解析其 -1 默认值。
+    postprocess_cpu_params(params_.cpuparams_batch, &params_.cpuparams);
 
     // Must run before llama_backend_init(): that function only falls back to
     // ggml's default search path (ggml_backend_load_all(), executable-dir +
@@ -291,8 +293,8 @@ EngineCore::~EngineCore() {
 }
 
 EngineCore::GenerateResult EngineCore::generate(const std::string & body_json) {
-    json body = json::parse(body_json);  // throws nlohmann::json::parse_error on malformed input;
-                                          // propagates uncaught to the binding layer (design spec §4.2 point 3)
+    // 无效 JSON 的 common_json_error 继续在绑定层映射为请求异常。
+    json body = json::parse(body_json);
 
     server_response_reader rd = ctx_.get_response_reader();
     server_task task(SERVER_TASK_TYPE_COMPLETION);
@@ -309,7 +311,7 @@ EngineCore::GenerateResult EngineCore::generate(const std::string & body_json) {
         json parsed = oaicompat_chat_params_parse(body, meta_->chat_params, files);
         const llama_vocab * vocab = llama_model_get_vocab(llama_get_model(ctx_.get_llama_context()));
         task.params = server_schema::eval_llama_cmpl_schema(
-            vocab, params_, meta_->slot_n_ctx, meta_->logit_bias_eog, parsed);
+            vocab, params_, meta_->logit_bias_eog, parsed);
         task.params.stream       = false;
         task.params.res_type     = TASK_RESPONSE_TYPE_NONE;
         task.params.cache_prompt = false;  // don't reuse KV across requests (fixes Tier2 #3's "empty prompt" bug)
@@ -421,7 +423,7 @@ EngineCore::StreamHandle EngineCore::generate_stream(const std::string & body_js
         json parsed = oaicompat_chat_params_parse(body, meta_->chat_params, files);
         const llama_vocab * vocab = llama_model_get_vocab(llama_get_model(ctx_.get_llama_context()));
         task.params = server_schema::eval_llama_cmpl_schema(
-            vocab, params_, meta_->slot_n_ctx, meta_->logit_bias_eog, parsed);
+            vocab, params_, meta_->logit_bias_eog, parsed);
         task.params.stream       = true;
         task.params.res_type     = TASK_RESPONSE_TYPE_NONE;
         task.params.cache_prompt = false;
