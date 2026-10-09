@@ -36,7 +36,11 @@ def bundle_sycl_runtime(stage: Path, root: Path) -> list[str]:
     # 同一版本根目录缺少文件时，从其 latest 链接路径补齐。
     for path in root.rglob("*.dll"):
         available.setdefault(path.name.lower(), path)
-    names += ["ze_loader.dll"] if "ze_loader.dll" in available else []
+    # 使用固定版本 SDK 的 loader，使 Windows 无需另外安装用户态 Level Zero 运行库。
+    sdk = Path(os.environ["LEVEL_ZERO_V1_SDK_PATH"])
+    for path in sdk.rglob("*.dll"):
+        available[path.name.lower()] = path
+    names += ["ze_loader.dll"]
     copied = []
     for name in names:
         if name.lower() not in available:
@@ -65,9 +69,6 @@ def bundle_sycl_runtime(stage: Path, root: Path) -> list[str]:
                     shutil.copy2(available[name], target)
                     queue.append(target)
                     copied.append(target.name)
-                elif name == "ze_loader.dll":
-                    # Level Zero loader 可由 Intel 显卡驱动提供。
-                    continue
                 else:
                     raise RuntimeError(f"Unresolved SYCL runtime dependency: {path.name} -> {name}")
     license_files = [path for path in root.rglob("*.txt")
@@ -110,6 +111,12 @@ def build(backend: str, stage: Path, work: Path) -> None:
         args += ["-DCMAKE_C_COMPILER=" + ("cl" if os.name == "nt" else "icx"),
                  "-DCMAKE_CXX_COMPILER=" + ("icx" if os.name == "nt" else "icpx"), "-DGGML_SYCL_F16=OFF"]
     subprocess.run(args, check=True)
+    if backend == "sycl":
+        configuration = (work / "build.ninja").read_text()
+        # 必须实际启用 oneDNN、Graph 和 Level Zero API，不能只接受 option=ON 后的降级配置。
+        for required in ("GGML_SYCL_DNNL=1", "GGML_SYCL_GRAPH", "GGML_SYCL_SUPPORT_LEVEL_ZERO_API"):
+            if required not in configuration:
+                raise RuntimeError(f"SYCL build is missing required feature: {required}")
     target = "ggml-" + backend
     subprocess.run(["cmake", "--build", str(work), "--target", target, "--parallel", os.environ.get("CMAKE_BUILD_PARALLEL_LEVEL", "2")], check=True)
     files = list((work / "bin").glob(("" if os.name == "nt" else "lib") + target + (".dll" if os.name == "nt" else ".so")))

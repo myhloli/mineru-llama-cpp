@@ -193,6 +193,8 @@ if (DEFINED ENV{MINERU_EXTRA_BACKENDS_DIR} AND NOT "$ENV{MINERU_EXTRA_BACKENDS_D
             endif()
             install(DIRECTORY "${MINERU_EXTRA_BACKENDS_DIR}/licenses/oneapi/"
                 DESTINATION "${CMAKE_INSTALL_BINDIR}/licenses/oneapi")
+            install(DIRECTORY "${MINERU_EXTRA_BACKENDS_DIR}/licenses/level-zero/"
+                DESTINATION "${CMAKE_INSTALL_BINDIR}/licenses/level-zero")
         endif()
         install(FILES ${backend_files} DESTINATION ${CMAKE_INSTALL_BINDIR})
     endforeach()

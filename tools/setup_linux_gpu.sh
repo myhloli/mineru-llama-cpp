@@ -59,6 +59,10 @@ if [ "$(uname -m)" = x86_64 ]; then
         --output "$oneapi_installer"
     bash "$oneapi_installer" -s -a --silent --eula accept
     rm "$oneapi_installer"
+    python "$project_root/tools/build_level_zero.py" --prefix "$tools_prefix" --work "$work_dir/level-zero"
+    export LEVEL_ZERO_V1_SDK_PATH="$tools_prefix"
+    export CMAKE_PREFIX_PATH="$tools_prefix${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}"
+    export LD_LIBRARY_PATH="$tools_prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
     set +u
     source /opt/intel/oneapi/setvars.sh --force
     set -u

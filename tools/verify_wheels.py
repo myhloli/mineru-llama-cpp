@@ -14,7 +14,7 @@ PLATFORMS = {
     "macosx_14_0_arm64": {"cpu", "metal"},
     "macosx_14_0_x86_64": {"cpu"},
 }
-EXTERNAL_LINUX_PREFIXES = ("libcuda", "libcublas", "libsycl", "libmkl", "libdnnl", "libtbb", "libur_", "libiomp", "libumf", "libtcm")
+EXTERNAL_LINUX_PREFIXES = ("libcuda", "libcublas", "libsycl", "libmkl", "libdnnl", "libtbb", "libur_", "libiomp", "libumf", "libtcm", "libze_loader")
 
 
 def verify(wheels: list[Path], require_all: bool = True) -> list[dict]:
@@ -56,6 +56,8 @@ def verify(wheels: list[Path], require_all: bool = True) -> list[dict]:
                 if platform == "win_amd64" and backend == "sycl":
                     if not manifest["bundled_runtime"] or not any(item.startswith("mineru_llama_cpp/bin/licenses/oneapi/") for item in names):
                         raise ValueError("Windows SYCL runtime and license notices are required")
+                    if "ze_loader.dll" not in manifest["bundled_runtime"] or not any(item.startswith("mineru_llama_cpp/bin/licenses/level-zero/") for item in names):
+                        raise ValueError("Windows SYCL requires its Level Zero loader and license notices")
                     for runtime in manifest["bundled_runtime"]:
                         if f"mineru_llama_cpp/bin/{runtime}" not in names:
                             raise ValueError(f"Missing bundled runtime: {runtime}")

@@ -41,6 +41,10 @@ def main() -> None:
     run_installer([str(extracted / "bootstrapper.exe"), "-s", "--action", "install", "--eula=accept",
                    "--components=" + components, "-p=NEED_VS2022_INTEGRATION=0"])
     installer.unlink()
+    level_zero = work / "level-zero-sdk"
+    subprocess.run([sys.executable, str(ROOT / "tools/build_level_zero.py"), "--prefix", str(level_zero),
+                    "--work", str(work / "level-zero"), "--stage", str(stage)], check=True)
+    os.environ["LEVEL_ZERO_V1_SDK_PATH"] = str(level_zero)
     build_command = ["cmd.exe", "/d", "/c", f'call "{os.environ["ONEAPI_ROOT"]}\\setvars.bat" intel64 --force && '
                       f'"{sys.executable}" "{ROOT / "tools/build_gpu_backends.py"}" --backend sycl --stage "{stage}" --work "{work / "sycl"}"']
     subprocess.run(build_command, check=True)

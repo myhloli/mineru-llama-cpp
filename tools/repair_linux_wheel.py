@@ -9,7 +9,7 @@ import zipfile
 
 GPU_RUNTIME_PREFIXES = ("libcuda.so", "libcudart.so", "libcublas", "libsycl", "libmkl", "libdnnl", "libtbb",
                         "libiomp", "libur_", "libumf", "libtcm", "libhwloc", "libsvml", "libimf", "libintlc",
-                        "libOpenCL.so", "libvulkan.so")
+                        "libOpenCL.so", "libvulkan.so", "libze_loader")
 
 
 def inspect_elf(path: Path) -> tuple[set[str], set[str]]:
