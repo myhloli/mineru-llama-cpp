@@ -99,7 +99,7 @@ chosen backend/device, and `LOG_LEVEL_DEBUG` for native loading details.
 ### External runtimes
 
 For Linux CUDA, install the CUDA runtime and cuBLAS matching the packaged
-module (12.x on x86_64, 13.x on aarch64), and expose its `lib64` directory to
+module (12.8 or newer 12.x on x86_64, 13.0 or newer 13.x on aarch64), and expose its `lib64` directory to
 the dynamic linker, for example through `LD_LIBRARY_PATH`. An NVIDIA driver
 alone does not provide cuBLAS. The compiler and full development toolkit are
 only required when building from source.
@@ -117,7 +117,7 @@ Intel GPU acceleration also requires the Intel GPU driver/Level Zero stack.
 Without that runtime, automatic selection uses Vulkan or CPU.
 
 On Windows, `CUDA_PATH/bin` is added to the DLL search path when importing
-the package. Point `CUDA_PATH` at a CUDA 12.x runtime/toolkit containing the
+the package. Point `CUDA_PATH` at a CUDA 12.8 or newer 12.x runtime/toolkit containing the
 required DLLs before launching Python. SYCL requires an Intel GPU driver;
 its user-space runtime libraries are already in the wheel.
 

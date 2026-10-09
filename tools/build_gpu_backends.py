@@ -12,6 +12,18 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def llama_revision() -> str:
+    """核验子模块提交；sdist 使用随源码保存的提交，避免误读外层 Git 仓库。"""
+    expected = (ROOT / "llama-cpp-revision.txt").read_text().strip()
+    source = ROOT / "third_party/llama.cpp"
+    top = subprocess.run(["git", "-C", str(source), "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+    if top.returncode == 0 and Path(top.stdout.strip()).resolve() == source.resolve():
+        actual = subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip()
+        if actual != expected:
+            raise RuntimeError("llama.cpp checkout differs from llama-cpp-revision.txt; update both together")
+    return expected
+
+
 def bundle_sycl_runtime(stage: Path, root: Path) -> list[str]:
     """按上游 2026.1.1 清单复制运行库，并验证 PE 的递归 DLL 依赖。"""
     import pefile
@@ -115,7 +127,7 @@ def build(backend: str, stage: Path, work: Path) -> None:
         architectures = subprocess.check_output([str(tool), "--list-elf", str(files[0])], text=True)
         if "sm_121" not in architectures:
             raise RuntimeError("GB10 sm_121 device code missing from ARM64 CUDA MODULE")
-    manifest = {"backend": backend, "llama_cpp_commit": subprocess.check_output(["git", "-C", str(ROOT / "third_party/llama.cpp"), "rev-parse", "HEAD"], text=True).strip(),
+    manifest = {"backend": backend, "llama_cpp_commit": llama_revision(),
                 "module": files[0].name, "bundled_runtime": runtime, "device_code": architectures}
     (stage / f"{backend}-build.json").write_text(json.dumps(manifest, indent=2))
 
