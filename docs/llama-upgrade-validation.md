@@ -30,6 +30,8 @@
 | M4 显式开启 Tensor | 探测通过、完整 Shader 编译及生成通过，25/25 层卸载 |
 | 显式 CPU | 0/25 层卸载，生成通过 |
 | Q8_0/F16 MUL_MAT | 上游 test-backend-ops 与 CPU 比较，Metal 37/37 用例通过 |
+| CI Intel wheel 的真实生成 | 下载 CPython 3.14 x86_64 wheel，在本机 Rosetta 下加载 Q8_0，32 tokens 生成通过；不代替原生 Intel 性能验证 |
+| CI Xcode 26.6 ARM wheel 的复验 | 下载 CPython 3.14 wheel，本机运行真实图像、JSON/UTF-8、流式、取消等待回归，19 passed |
 
 Tensor 能力为真只证明该路径可用，不能单凭该字段判断某个请求实际调用了 Tensor 内核。M4 显式开启测试不等同于 M5 加速验证。
 
@@ -53,7 +55,15 @@ Tensor 能力为真只证明该路径可用，不能单凭该字段判断某个�
 
 ## 待验证项与证据位置
 
-Linux、Windows、Intel Mac 的 CI 构建和安装检查，以及 macOS 15/Xcode 16.4、macOS 26/Xcode 26.6 构建尚待本轮 CI 结果。macOS 14/15 的 GPU 真机和 M5/macOS 26/27 的完整提取及性能验证仍待外部反馈。
+专用分支为 `codex/llama-cpp-macos14-20261009`，工作目录仍保留可审阅的未提交修改。
+
+- [macOS 专项 CI](https://github.com/myhloli/mineru-llama-cpp/actions/runs/37931702662)：通过。包含 ARM64/Intel 各五个 wheel 的安装、CPU 后端检查、Mach-O 审计，以及 macOS 15/Xcode 16.4 检查。产物使用 Xcode 26.6，最低目标 14.0。
+- [跨平台 CI](https://github.com/myhloli/mineru-llama-cpp/actions/runs/37931118909)：Windows AMD64/ARM64、ARM macOS、Linux x86_64/ARM64 的全部构建和安装检查通过，Linux 各包含 manylinux/musllinux 的五个 Python 版本。该运行整体状态仍为 failure，因为旧 Intel 指令配置失败；该项已由后续 macOS 专项运行修复并验证。
+- 两轮运行使用相同的固定上游和 C++ 绑定；后一次额外修复仅影响 Intel Mac 的默认 CPU 指令策略，并增加手动平台筛选。
+
+合并两轮的具体 job 结果，八个平台/发行格式、Python 3.10–3.14 的 40 个目标 wheel 均完成构建和安装检查；不将旧运行的整体 failure 写成 success。源码验证分支已经推送，main 与正式发布保持原状态。
+
+macOS 14/15 的 GPU 真机和 M5/macOS 26/27 的完整提取及性能验证仍待外部反馈。CI 的导入与后端检查不等同于各平台完整文档提取；本机 Rosetta 也不等同于原生 Intel 真机。
 
 本地产物位于 `build/upgrade-validation/`（忽略的构建目录）：
 
@@ -63,5 +73,7 @@ Linux、Windows、Intel Mac 的 CI 构建和安装检查，以及 macOS 15/Xcode
 - `candidate/python-*/`、`candidate/mode-*/`：各 Python 和运行模式的结构化结果及原生日志。
 - `benchmark/summary.json`、`benchmark/round-*/{baseline,candidate}/`：完整三轮数据和提取结果。
 - `images/demo1-page1.png`、`candidate/layout-overlay.png`：源页和已查看的区域标框。
+- `ci-intel-wheels/`、`ci-intel-generation/`、`ci-arm64-audits/`：下载的 CI 产物和本地复验。
+- `ci-arm64-wheels/`、`ci-arm64-focused.log`：正式构建 SDK 对应候选包及本机复验。
 
 `tools/diagnose_metal.py` 可复用安装包诊断；`tools/benchmark_upgrade.py` 可复用交替测量。正式发布、BF16 专项修复和性能宣传调整不属于此次候选验证。
