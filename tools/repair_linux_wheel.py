@@ -24,8 +24,8 @@ def inspect_elf(path: Path) -> tuple[set[str], set[str]]:
     return needed, versions
 
 
-def repair(wheel: Path, destination: Path) -> None:
-    """检查包内每个 ELF 的 glibc 下限，并显式排除外部 GPU 运行库。"""
+def inspect_wheel(wheel: Path) -> tuple[dict, set[str]]:
+    """审计每个 ELF 的动态依赖和系统 C/C++ ABI 下限，包括修复时加入的库。"""
     external = set()
     report = {}
     with tempfile.TemporaryDirectory() as temporary:
@@ -39,17 +39,29 @@ def repair(wheel: Path, destination: Path) -> None:
                 if source.read(4) != b"\x7fELF":
                     continue
             needed, versions = inspect_elf(path)
-            glibc = [tuple(map(int, value.removeprefix("GLIBC_").split("."))) for value in versions if value.startswith("GLIBC_")]
-            if any(version > (2, 28) for version in glibc):
-                raise RuntimeError(f"{path.name} needs glibc newer than 2.28: {versions}")
+            for prefix, maximum in (("GLIBC_", (2, 28)), ("GLIBCXX_", (3, 4, 25)), ("CXXABI_", (1, 3, 11))):
+                required = [tuple(map(int, value.removeprefix(prefix).split("."))) for value in versions if value.startswith(prefix)]
+                if any(version > maximum for version in required):
+                    raise RuntimeError(f"{path.name} exceeds manylinux_2_28 {prefix} ABI floor: {versions}")
             external.update(name for name in needed if name.startswith(GPU_RUNTIME_PREFIXES))
             report[str(path.relative_to(root))] = {"needed": sorted(needed), "versions": sorted(versions)}
+    return report, external
+
+
+def repair(wheel: Path, destination: Path) -> None:
+    """先审计原包，排除外部 GPU 库后修复，再审计最终发布包的全部 ELF。"""
+    _, external = inspect_wheel(wheel)
     command = ["auditwheel", "repair", "--plat", "manylinux_2_28_" + ("aarch64" if "aarch64" in wheel.name else "x86_64"),
                "--disable-isa-ext-check", "-w", str(destination)]
     for name in sorted(external):
         command.extend(["--exclude", name])
     command.append(str(wheel))
     subprocess.run(command, check=True)
+    prefix = wheel.name.rsplit("-", 1)[0] + "-"
+    repaired = [path for path in destination.glob("*.whl") if path.name.startswith(prefix)]
+    if len(repaired) != 1:
+        raise RuntimeError(f"Expected one repaired wheel, got {repaired}")
+    report, _ = inspect_wheel(repaired[0])
     # 报告写在 wheelhouse 之外，发布目录只收集真正的 wheel。
     import json
     audit_dir = destination.parent / "wheel-audits"

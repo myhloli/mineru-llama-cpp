@@ -16,11 +16,12 @@ def test_uninitialized_core_rejects_calls(method):
     gc.collect()
 
 
-def test_failed_constructor_is_safe_to_collect():
+@pytest.mark.parametrize("model", [object(), "\ud800"], ids=["unsupported", "invalid-unicode"])
+def test_failed_constructor_is_safe_to_collect(model):
     """参数转换失败的部分构造对象能够反复回收。"""
     for _ in range(50):
         with pytest.raises(TypeError):
-            _EngineCore(object(), "projector", 1, 0, 1, 0, 1)
+            _EngineCore(model, "projector", 1, 0, 1, 0, 1)
     gc.collect()
 
 

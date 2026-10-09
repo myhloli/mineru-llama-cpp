@@ -58,13 +58,18 @@ PyObject * checked(PyObject * object) {
     return object;
 }
 
-// 从 str 或 bytes 复制完整 UTF-8 字节，保留内嵌零字节。
+// 从 str、bytes 或 bytearray 复制完整 UTF-8 字节，保留内嵌零字节。
 std::string string_argument(PyObject * object) {
     Py_ssize_t size = 0;
     const char * data = nullptr;
     if (PyUnicode_Check(object)) {
         data = PyUnicode_AsUTF8AndSize(object, &size);
-        if (!data) throw PythonError{};
+        if (!data) {
+            // 旧 pybind11 将无法编码的 str 作为参数类型错误，保留异常类别。
+            PyErr_Clear();
+            PyErr_SetString(PyExc_TypeError, "string cannot be encoded as UTF-8");
+            throw PythonError{};
+        }
     } else if (PyBytes_Check(object)) {
         char * bytes = nullptr;
         if (PyBytes_AsStringAndSize(object, &bytes, &size) < 0) throw PythonError{};
