@@ -265,6 +265,8 @@ and compilation checks. Tensor compilation uses Metal 4.0 on supported
 systems; the package's minimum deployment target remains macOS 14.
 Intel wheels use CPU. Use Q8_0 models for both model and mmproj (see the
 existing BF16 limitation). OpenMP is OFF on macOS.
+Intel source builds default to a CPU instruction baseline compatible with
+Rosetta; explicit CMake feature flags can opt into AVX/FMA on capable hardware.
 
 To disable only the optional tensor API, set this before starting Python:
 

@@ -10,6 +10,7 @@
 - 新上游创建批处理线程池，绑定层补齐 `cpuparams_batch` 默认值解析，避免负线程数造成崩溃。
 - 新 JSON 接受原始字节，绑定层继续将非法生成内容映射为原有 `InvalidRequestError`；长度截断只舍弃未完成字符，严格 UTF-8 解码辅助函数保持原语义。
 - 常规 wheel 扩展在构建目录生成，源码包复制排除 editable 残留的 `.so`/`.pyd`，避免串入其他 Python ABI。
+- 安装检查发现 Intel 的单一 AVX CPU 后端在 Rosetta 能力评分为零时无法加载；Intel Mac 默认关闭 AVX、AVX2、FMA、F16C、BMI2，允许显式构建参数覆盖。ARM 和 Linux/Windows 的指令策略保持原配置。Windows 检查按真实 RUNTIME 布局在 bin/lib 中定位共享 DLL。
 
 ## 本地验证
 
