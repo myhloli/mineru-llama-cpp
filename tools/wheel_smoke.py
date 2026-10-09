@@ -12,7 +12,10 @@ def main() -> None:
 
     package = Path(mineru_llama_cpp.__file__).resolve().parent
     name = "ggml.dll" if sys.platform == "win32" else "libggml.0.dylib" if sys.platform == "darwin" else "libggml.so.0"
-    library_path = package / "lib" / name
+    # Windows 的共享 DLL 按 RUNTIME 安装到 bin，Unix 的共享库安装到 lib。
+    library_path = next((package / directory / name for directory in ("lib", "bin")
+                         if (package / directory / name).is_file()), None)
+    assert library_path is not None, f"packaged {name} missing under {package}"
     library = ctypes.CDLL(str(library_path))
     library.ggml_backend_load_all_from_path.argtypes = [ctypes.c_char_p]
     library.ggml_backend_load_all_from_path.restype = None
