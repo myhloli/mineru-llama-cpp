@@ -106,13 +106,13 @@ before-all = "brew install ninja"
 archs = ["AMD64"]
 repair-wheel-command = ""
 environment = { CMAKE_GENERATOR = "Ninja", VULKAN_SDK = "C:/VulkanSDK", ONEAPI_ROOT = "C:/Program Files (x86)/Intel/oneAPI", MINERU_EXTRA_BACKENDS_DIR = "C:/mineru-gpu-backends", SKBUILD_CMAKE_ARGS = "-DGGML_VULKAN=ON" }
+before-all = "pip install ninja cmake pefile && python {project}/tools/setup_windows_gpu.py"
+before-build = "python {project}/tools/clean_native_artifacts.py"
 
 [[tool.cibuildwheel.overrides]]
 select = "cp*-manylinux_aarch64"
 inherit = { "environment" = "none" }
 environment = { SKBUILD_CMAKE_ARGS = "-DGGML_VULKAN=ON", VULKAN_SDK = "/project/.gpu-tools", CMAKE_PREFIX_PATH = "/project/.gpu-tools" }
-before-all = "pip install ninja cmake pefile && python {project}/tools/setup_windows_gpu.py"
-before-build = "python {project}/tools/clean_native_artifacts.py"
 
 [[tool.cibuildwheel.overrides]]
 select = "cp*-win_arm64"
