@@ -81,6 +81,13 @@ pip install -e ".[test]"
 The first build compiles llama.cpp from source (a few minutes); subsequent
 builds only recompile this library's own C++ files.
 
+Tests accept `MINERU_LLAMA_CPP_TEST_MODEL` and
+`MINERU_LLAMA_CPP_TEST_MMPROJ` to select local MinerU Q8_0 model files.
+`tests/test_output_utf8.py` tests the production UTF-8 decoder without
+loading models; it builds a small test extension using the `[test]`
+dependencies and a C++ compiler. The deterministic generation regressions
+use byte token IDs from the MinerU Q8_0 vocabulary.
+
 ## Preparing GGUF models
 
 `Engine` takes two local `.gguf` files: the main model and its multimodal

@@ -1,13 +1,20 @@
 """Shared pytest fixtures. See Phase E header note on fixture image sizing."""
 
+import os
 from pathlib import Path
 
 import pytest
 
 from mineru_llama_cpp import Engine
 
-MODEL = "/Users/jinzhenj/.mineru/models/MinerU2.5-Pro-2605-1.2B-Q8_0.gguf"
-MMPROJ = "/Users/jinzhenj/.mineru/models/mmproj-MinerU2.5-Pro-2605-1.2B-Q8_0.gguf"
+MODEL = os.environ.get(
+    "MINERU_LLAMA_CPP_TEST_MODEL",
+    "/Users/jinzhenj/.mineru/models/MinerU2.5-Pro-2605-1.2B-Q8_0.gguf",
+)
+MMPROJ = os.environ.get(
+    "MINERU_LLAMA_CPP_TEST_MMPROJ",
+    "/Users/jinzhenj/.mineru/models/mmproj-MinerU2.5-Pro-2605-1.2B-Q8_0.gguf",
+)
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 _LAYOUT_IMAGE_SOURCE = Path(

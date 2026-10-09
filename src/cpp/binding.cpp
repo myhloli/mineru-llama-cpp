@@ -5,6 +5,7 @@
 #include <nlohmann/json.hpp>
 
 #include "engine_core.h"
+#include "output_utf8.h"
 
 #include <string>
 
@@ -74,7 +75,7 @@ py::dict generate_impl(EngineCore & self, const std::string & body) {
         raise_from_error_json(r.error_json);
     }
     py::dict out;
-    out["content"]          = r.content;
+    out["content"]          = mineru_llama_cpp::decode_output_content(r.content, r.finish_reason);
     out["finish_reason"]    = r.finish_reason;
     out["tokens_evaluated"] = r.tokens_evaluated;
     out["tokens_predicted"] = r.tokens_predicted;

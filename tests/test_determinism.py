@@ -5,9 +5,7 @@ both within one Engine and across separate Engine instances."""
 import asyncio
 
 from mineru_llama_cpp import Engine, SamplingParams
-
-MODEL = "/Users/jinzhenj/.mineru/models/MinerU2.5-Pro-2605-1.2B-Q8_0.gguf"
-MMPROJ = "/Users/jinzhenj/.mineru/models/mmproj-MinerU2.5-Pro-2605-1.2B-Q8_0.gguf"
+from conftest import MODEL, MMPROJ
 
 _MESSAGES = [{"role": "user", "content": "List three fruits, one per line."}]
 _SP = SamplingParams(temperature=0.0, top_k=1, seed=42, n_predict=64)

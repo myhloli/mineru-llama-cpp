@@ -1,5 +1,78 @@
 # Known Issues
 
+## Incomplete UTF-8 at a generation length limit
+
+[Issue #1](https://github.com/opendatalab/mineru-llama-cpp/issues/1) affects
+0.1.2: `generate()` / `agenerate()` can raise `UnicodeDecodeError` when a
+length limit stops generation between the bytes of a Unicode character.
+There is no fixed 16 KB threshold; a one-token completion can trigger it.
+The default Unicode grammar allows a character to span multiple tokens,
+so it cannot prevent an incomplete character at a forced stopping point.
+
+The current source strictly decodes the complete prefix when
+`finish_reason == "length"` and drops only an unfinished trailing character.
+Complete content, structure markers, embedded zero bytes, token counts and
+timings are preserved. Invalid UTF-8 still raises an error; replacement
+characters are not inserted. Natural stops retain strict decoding. The
+streaming path already holds back incomplete characters, so concatenated
+streaming content follows the same boundary.
+
+The fix needs a rebuilt extension; updating Python source alone does not
+change an already installed 0.1.2 binary.
+
+## Metal tensor API warnings do not imply CPU fallback
+
+[Issue #2](https://github.com/opendatalab/mineru-llama-cpp/issues/2) reports:
+
+```text
+ggml_metal_library_init_from_source: error compiling source
+ggml_metal_device_init: - the tensor API is not supported in this environment - disabling
+```
+
+These messages come from an optional tensor API capability probe. Failure
+disables that feature while allowing the regular Metal kernels to run.
+On Apple M4 / macOS 26.6.2, enabling the probe with
+`GGML_METAL_TENSOR_ENABLE=1` reproduces both warnings, followed by successful
+Metal initialization, `offloaded 25/25 layers to GPU`, and generation.
+This does not establish what happens on the reporter's M5 Pro / macOS 27.
+
+The embedded shader includes `ggml-common.h` only in the non-embedded
+`#else` branch. Extracting it and calling `newLibraryWithSource` without
+the runtime `GGML_METAL_EMBED_LIBRARY=1` preprocessor macro produces the
+reported missing-header error; it does not reproduce the actual library
+initialization. The CPython 3.12 arm64 0.1.2 wheel was checked for this
+conditional, and the local wheel's shader compiled successfully with the
+runtime macro enabled. Do not infer a missing wheel resource merely from
+the presence of that include.
+
+To investigate an actual CPU fallback, retain the full initialization log,
+package/Python versions, chip name, macOS version and build. For a minimal
+engine check with local Q8_0 models:
+
+```bash
+python - <<'PY' 2>&1 | tee metal-init.log
+from mineru_llama_cpp import Engine, SamplingParams
+from mineru_llama_cpp.verbosity import LOG_LEVEL_DEBUG
+
+with Engine(
+    "/path/to/MinerU2.5-Pro-2605-1.2B-Q8_0.gguf",
+    "/path/to/mmproj-MinerU2.5-Pro-2605-1.2B-Q8_0.gguf",
+    n_ctx_seq=2048,
+    n_parallel=1,
+    n_gpu_layers=99,
+    verbosity=LOG_LEVEL_DEBUG,
+) as engine:
+    print(engine.generate(
+        [{"role": "user", "content": "hello"}],
+        SamplingParams(n_predict=8),
+    ))
+PY
+```
+
+Check the Metal backend loading result, layer offloading count, and actual
+generation. A failure in the main Metal library or model allocation needs
+its own complete error log; the two probe messages alone are insufficient.
+
 ## BF16 models SIGSEGV under Metal when loaded from a Python extension (.so)
 
 **Symptom:** Loading a BF16 GGUF model (main model or mmproj) with the Metal

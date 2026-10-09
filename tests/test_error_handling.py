@@ -5,9 +5,7 @@ down the Engine)."""
 import pytest
 
 from mineru_llama_cpp import ContextExceededError, Engine, InvalidRequestError
-
-MODEL = "/Users/jinzhenj/.mineru/models/MinerU2.5-Pro-2605-1.2B-Q8_0.gguf"
-MMPROJ = "/Users/jinzhenj/.mineru/models/mmproj-MinerU2.5-Pro-2605-1.2B-Q8_0.gguf"
+from conftest import MODEL, MMPROJ
 
 _BAD_IMAGE_MESSAGES = [
     {
