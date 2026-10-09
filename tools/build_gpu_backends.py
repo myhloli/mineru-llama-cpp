@@ -48,10 +48,12 @@ def bundle_sycl_runtime(stage: Path, root: Path) -> list[str]:
         copied.append(name)
     system = {"kernel32.dll", "ntdll.dll", "advapi32.dll", "user32.dll", "gdi32.dll", "shell32.dll", "ole32.dll",
               "oleaut32.dll", "ws2_32.dll", "shlwapi.dll", "bcrypt.dll", "version.dll", "setupapi.dll",
-              "cfgmgr32.dll", "psapi.dll", "ucrtbase.dll", "msvcrt.dll", "msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll"}
+              "cfgmgr32.dll", "psapi.dll", "dbghelp.dll", "dbgcore.dll", "ucrtbase.dll", "msvcrt.dll",
+              "msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll"}
     # 未在静态清单里的 Intel 依赖也需复制，不能依赖构建机 PATH。
     queue = [stage / name for name in copied] + [stage / "ggml-sycl.dll"]
     visited = set()
+    unresolved = set()
     while queue:
         path = queue.pop()
         if path.name.lower() in visited:
@@ -69,7 +71,10 @@ def bundle_sycl_runtime(stage: Path, root: Path) -> list[str]:
                     queue.append(target)
                     copied.append(target.name)
                 else:
-                    raise RuntimeError(f"Unresolved SYCL runtime dependency: {path.name} -> {name}")
+                    unresolved.add((path.name, name))
+    if unresolved:
+        # 一次返回全部缺失依赖，避免每次完整编译后只能发现一个问题。
+        raise RuntimeError(f"Unresolved SYCL runtime dependencies: {sorted(unresolved)}")
     license_files = [path for path in root.rglob("*.txt")
                      if any(word in str(path).lower() for word in ("license", "licensing", "eula", "third-party-programs"))]
     if not license_files:
