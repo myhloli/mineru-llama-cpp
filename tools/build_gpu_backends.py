@@ -5,7 +5,6 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import platform
 import shutil
 import subprocess
 import sys
@@ -101,15 +100,8 @@ def build(backend: str, stage: Path, work: Path) -> None:
             "-DLLAMA_OPENSSL=OFF", f"-DGGML_{backend.upper()}=ON"]
     if os.name != "nt":
         args += ["-DCMAKE_BUILD_WITH_INSTALL_RPATH=ON", "-DCMAKE_INSTALL_RPATH=$ORIGIN;$ORIGIN/../lib"]
-    if backend == "cuda":
-        toolkit = Path(os.environ["CUDA_PATH"])
-        args += [f"-DCUDAToolkit_ROOT={toolkit}", f"-DCMAKE_CUDA_COMPILER={toolkit / 'bin' / ('nvcc.exe' if os.name == 'nt' else 'nvcc')}",
-                 "-DGGML_CUDA_CCCL_VERSION=v3.4.3"]
-        if platform.machine().lower() in {"aarch64", "arm64"}:
-            args += ["-DCMAKE_CUDA_ARCHITECTURES=75-virtual;80-virtual;86-real;89-real;90-virtual;120a-real;121a-real"]
-    else:
-        args += ["-DCMAKE_C_COMPILER=" + ("cl" if os.name == "nt" else "icx"),
-                 "-DCMAKE_CXX_COMPILER=" + ("icx" if os.name == "nt" else "icpx"), "-DGGML_SYCL_F16=OFF"]
+    args += ["-DCMAKE_C_COMPILER=" + ("cl" if os.name == "nt" else "icx"),
+             "-DCMAKE_CXX_COMPILER=" + ("icx" if os.name == "nt" else "icpx"), "-DGGML_SYCL_F16=OFF"]
     subprocess.run(args, check=True)
     if backend == "sycl":
         configuration = (work / "build.ninja").read_text()
@@ -127,28 +119,18 @@ def build(backend: str, stage: Path, work: Path) -> None:
         # 擦除工具链写入的绝对目录，保证缺少外部运行库时能真实回退。
         subprocess.run(["patchelf", "--set-rpath", "$ORIGIN:$ORIGIN/../lib", str(stage / files[0].name)], check=True)
     runtime = bundle_sycl_runtime(stage, Path(os.environ["ONEAPI_ROOT"])) if backend == "sycl" and os.name == "nt" else []
-    architectures = ""
-    if backend == "cuda" and platform.machine().lower() in {"aarch64", "arm64"}:
-        cache = (work / "CMakeCache.txt").read_text()
-        # 配置及 cuobjdump 都检查，防止 ARM 包仅携带其他 Blackwell 代码。
-        if "121a" not in cache:
-            raise RuntimeError("ARM64 CUDA configuration must contain 121a-real")
-        tool = Path(os.environ["CUDA_PATH"]) / "bin" / "cuobjdump"
-        architectures = subprocess.check_output([str(tool), "--list-elf", str(files[0])], text=True)
-        if "sm_121" not in architectures:
-            raise RuntimeError("GB10 sm_121 device code missing from ARM64 CUDA MODULE")
-    compiler = str(Path(os.environ["CUDA_PATH"]) / "bin" / ("nvcc.exe" if os.name == "nt" else "nvcc")) if backend == "cuda" else "icx" if os.name == "nt" else "icpx"
+    compiler = "icx" if os.name == "nt" else "icpx"
     # 同时保存编译器版本和补丁摘要，供合包时核验及设备复核时追溯。
     toolchain = subprocess.check_output([compiler, "--version"], text=True, stderr=subprocess.STDOUT)
     manifest = {"backend": backend, "llama_cpp_commit": llama_revision(), "patches": patch_hashes,
-                "module": files[0].name, "bundled_runtime": runtime, "device_code": architectures, "toolchain": toolchain}
+                "module": files[0].name, "bundled_runtime": runtime, "toolchain": toolchain}
     (stage / f"{backend}-build.json").write_text(json.dumps(manifest, indent=2))
 
 
 def main() -> None:
     """接收后端与暂存目录，构建结果供普通 wheel 的 CMake install 使用。"""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--backend", choices=["cuda", "sycl"], required=True)
+    parser.add_argument("--backend", choices=["sycl"], required=True)
     parser.add_argument("--stage", type=Path, required=True)
     parser.add_argument("--work", type=Path, required=True)
     args = parser.parse_args()

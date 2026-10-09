@@ -10,7 +10,7 @@ yum install -y git curl tar xz unzip make gcc gcc-c++
 python -m pip install 'cmake==3.31.10' ninja
 export CMAKE_BUILD_PARALLEL_LEVEL="${CMAKE_BUILD_PARALLEL_LEVEL:-2}"
 mkdir -p "$tools_prefix" "$work_dir" "$stage_dir"
-if [ -x "$tools_prefix/bin/glslc" ] && [ -f "$stage_dir/cuda-build.json" ]; then
+if [ -x "$tools_prefix/bin/glslc" ]; then
     if [ "$(uname -m)" = aarch64 ] || [ -f "$stage_dir/sycl-build.json" ]; then
         # 缓存键包含后端源码、补丁和工具脚本；CMake install 仍会核验提交一致。
         echo "Using cached Vulkan tools and independently built GPU MODULEs"
@@ -43,14 +43,6 @@ cmake -S "$work_dir/shaderc/third_party/spirv-headers" -B "$work_dir/spirv-heade
 cmake --build "$work_dir/spirv-headers-build" --target install
 export VULKAN_SDK="$tools_prefix"
 export PATH="$tools_prefix/bin:$PATH"
-export CUDA_PATH=/opt/mineru-cuda
-if [ "$(uname -m)" = aarch64 ]; then
-    cuda_version=13.0.0
-else
-    cuda_version=12.8.1
-fi
-python "$project_root/tools/install_cuda.py" --version "$cuda_version" --destination "$CUDA_PATH"
-python "$project_root/tools/build_gpu_backends.py" --backend cuda --stage "$stage_dir" --work "$work_dir/cuda"
 if [ "$(uname -m)" = x86_64 ]; then
     # 官方固定版本离线安装器；Linux 包只暂存 MODULE，不复制 oneAPI 运行库。
     oneapi_installer="$work_dir/oneapi-2026.1.1.sh"

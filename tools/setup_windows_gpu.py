@@ -1,10 +1,10 @@
-"""安装固定 GPU 构建工具，分别构建 CUDA 与内置运行库的 SYCL 后端。"""
+"""安装固定 Vulkan/oneAPI 构建工具，构建内置运行库的 SYCL 后端。"""
 from __future__ import annotations
 import os
 from pathlib import Path
 import subprocess
 import sys
-from install_cuda import download, install
+from download_sdk import download
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -22,17 +22,13 @@ def main() -> None:
     stage = Path(os.environ["MINERU_EXTRA_BACKENDS_DIR"])
     work.mkdir(parents=True, exist_ok=True)
     vulkan = Path(os.environ["VULKAN_SDK"])
-    if (vulkan / "Bin/glslc.exe").exists() and all((stage / f"{backend}-build.json").exists() for backend in ("cuda", "sycl")):
+    if (vulkan / "Bin/glslc.exe").exists() and (stage / "sycl-build.json").exists():
         print("Using cached Vulkan SDK and independently built GPU MODULEs")
         return
     installer = work / "vulkan_sdk.exe"
     download("https://sdk.lunarg.com/sdk/download/1.4.350.0/windows/vulkan_sdk.exe", installer)
     run_installer([str(installer), "-t", str(vulkan), "--accept-licenses", "--default-answer", "--confirm-command", "install"])
     installer.unlink()
-    cuda = Path(os.environ["CUDA_PATH"])
-    install("12.8.1", cuda, "windows-x86_64")
-    subprocess.run([sys.executable, str(ROOT / "tools/build_gpu_backends.py"), "--backend", "cuda",
-                    "--stage", str(stage), "--work", str(work / "cuda")], check=True)
     installer = work / "oneapi.exe"
     download("https://registrationcenter-download.intel.com/akdlm/IRC_NAS/0cb67a0d-67f6-410b-868b-f4a0a17ff0cf/intel-oneapi-toolkit-2026.1.1.32_offline.exe", installer)
     extracted = work / "oneapi-extracted"

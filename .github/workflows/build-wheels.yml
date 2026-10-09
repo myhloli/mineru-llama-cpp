@@ -28,10 +28,10 @@ jobs:
           path: |
             .gpu-stage
             .gpu-tools
-          key: gpu-manylinux228-${{ runner.arch }}-cuda-sycl-${{ hashFiles('third_party/llama.cpp/ggml/**', 'patches/llama.cpp/*.patch', 'tools/*gpu*', 'tools/install_cuda.py', 'tools/build_level_zero.py') }}
+          key: gpu-manylinux228-${{ runner.arch }}-sycl-vulkan-${{ hashFiles('third_party/llama.cpp/ggml/**', 'patches/llama.cpp/*.patch', 'tools/*gpu*', 'tools/download_sdk.py', 'tools/build_level_zero.py') }}
       - name: Install cibuildwheel
         run: pip install cibuildwheel==4.3.0
-      - name: Build wheels (Linux x86_64, CPU+Vulkan+CUDA+SYCL)
+      - name: Build wheels (Linux x86_64, CPU+Vulkan+SYCL)
         run: cibuildwheel --output-dir wheelhouse --archs x86_64
       - uses: actions/upload-artifact@v4
         with:
@@ -53,10 +53,10 @@ jobs:
           path: |
             .gpu-stage
             .gpu-tools
-          key: gpu-manylinux228-${{ runner.arch }}-cuda-sycl-${{ hashFiles('third_party/llama.cpp/ggml/**', 'patches/llama.cpp/*.patch', 'tools/*gpu*', 'tools/install_cuda.py', 'tools/build_level_zero.py') }}
+          key: gpu-manylinux228-${{ runner.arch }}-sycl-vulkan-${{ hashFiles('third_party/llama.cpp/ggml/**', 'patches/llama.cpp/*.patch', 'tools/*gpu*', 'tools/download_sdk.py', 'tools/build_level_zero.py') }}
       - name: Install cibuildwheel
         run: pip install cibuildwheel==4.3.0
-      - name: Build wheels (Linux aarch64, CPU+Vulkan+CUDA)
+      - name: Build wheels (Linux aarch64, CPU+Vulkan)
         run: cibuildwheel --output-dir wheelhouse --archs aarch64
       - uses: actions/upload-artifact@v4
         with:
@@ -166,10 +166,10 @@ jobs:
           path: |
             C:/VulkanSDK
             C:/mineru-gpu-backends
-          key: gpu-windows-amd64-cuda-sycl-${{ hashFiles('third_party/llama.cpp/ggml/**', 'patches/llama.cpp/*.patch', 'tools/*gpu*', 'tools/install_cuda.py', 'tools/build_level_zero.py') }}
+          key: gpu-windows-amd64-sycl-vulkan-${{ hashFiles('third_party/llama.cpp/ggml/**', 'patches/llama.cpp/*.patch', 'tools/*gpu*', 'tools/download_sdk.py', 'tools/build_level_zero.py') }}
       - name: Install cibuildwheel
         run: pip install cibuildwheel==4.3.0
-      - name: Build wheels (Windows AMD64, CPU+Vulkan+CUDA+SYCL)
+      - name: Build wheels (Windows AMD64, CPU+Vulkan+SYCL)
         run: cibuildwheel --output-dir wheelhouse --archs AMD64
       - uses: actions/upload-artifact@v4
         with:

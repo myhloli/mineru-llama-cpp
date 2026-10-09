@@ -107,7 +107,7 @@ int read_n_ctx_train_from_gguf(const std::string & model_path) {
 
 // 说明已打包却未注册的后端，区分缺少运行库与没有可用设备的回退原因。
 void log_packaged_backend_status(const std::filesystem::path & directory) {
-    for (const char * name : {"cuda", "sycl", "vulkan", "metal"}) {
+    for (const char * name : {"sycl", "vulkan", "metal"}) {
 #if defined(_WIN32)
         const auto module = directory / (std::string("ggml-") + name + ".dll");
 #else

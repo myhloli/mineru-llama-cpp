@@ -1,0 +1,32 @@
+# 可选后端初始化抛出异常时保留其他后端及 CPU 回退能力。
+diff --git a/ggml/src/ggml-backend-reg.cpp b/ggml/src/ggml-backend-reg.cpp
+index 1c18b82..5b2d570 100644
+--- a/ggml/src/ggml-backend-reg.cpp
++++ b/ggml/src/ggml-backend-reg.cpp
+@@ -4,6 +4,7 @@
+ #include "ggml-impl.h"
+ #include <algorithm>
+ #include <cstring>
++#include <exception>
+ #include <filesystem>
+ #include <memory>
+ #include <string>
+@@ -242,7 +243,17 @@ struct ggml_backend_registry {
+             return nullptr;
+         }
+ 
+-        ggml_backend_reg_t reg = backend_init_fn();
++        ggml_backend_reg_t reg = nullptr;
++        // 可选运行库存在但驱动初始化失败时仍允许加载其他后端，不重跑任何推理。
++        try {
++            reg = backend_init_fn();
++        } catch (const std::exception & error) {
++            GGML_LOG_WARN("%s: optional backend %s initialization failed: %s\n", __func__, path_str(path).c_str(), error.what());
++            return nullptr;
++        } catch (...) {
++            GGML_LOG_WARN("%s: optional backend %s initialization failed with an unknown exception\n", __func__, path_str(path).c_str());
++            return nullptr;
++        }
+         if (!reg || reg->api_version != GGML_BACKEND_API_VERSION) {
+             if (!silent) {
+                 if (!reg) {

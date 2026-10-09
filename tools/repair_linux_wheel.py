@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 import zipfile
 
-GPU_RUNTIME_PREFIXES = ("libcuda.so", "libcudart.so", "libcublas", "libsycl", "libmkl", "libdnnl", "libtbb",
+GPU_RUNTIME_PREFIXES = ("libsycl", "libmkl", "libdnnl", "libtbb",
                         "libiomp", "libur_", "libumf", "libtcm", "libhwloc", "libsvml", "libimf", "libintlc",
                         "libOpenCL.so", "libvulkan.so", "libze_loader")
 
@@ -39,6 +39,8 @@ def inspect_wheel(wheel: Path) -> tuple[dict, set[str]]:
                 if source.read(4) != b"\x7fELF":
                     continue
             needed, versions = inspect_elf(path)
+            if any(name.startswith(("libcuda", "libcublas")) for name in needed):
+                raise RuntimeError(f"CUDA dependencies are not supported: {path.name} -> {needed}")
             for prefix, maximum in (("GLIBC_", (2, 28)), ("GLIBCXX_", (3, 4, 25)), ("CXXABI_", (1, 3, 11))):
                 required = [tuple(map(int, value.removeprefix(prefix).split("."))) for value in versions if value.startswith(prefix)]
                 if any(version > maximum for version in required):

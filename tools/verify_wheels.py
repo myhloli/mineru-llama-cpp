@@ -7,9 +7,9 @@ import zipfile
 from packaging.utils import parse_wheel_filename
 
 PLATFORMS = {
-    "manylinux_2_28_x86_64": {"cpu", "vulkan", "cuda", "sycl"},
-    "manylinux_2_28_aarch64": {"cpu", "vulkan", "cuda"},
-    "win_amd64": {"cpu", "vulkan", "cuda", "sycl"},
+    "manylinux_2_28_x86_64": {"cpu", "vulkan", "sycl"},
+    "manylinux_2_28_aarch64": {"cpu", "vulkan"},
+    "win_amd64": {"cpu", "vulkan", "sycl"},
     "win_arm64": {"cpu"},
     "macosx_14_0_arm64": {"cpu", "metal"},
     "macosx_14_0_x86_64": {"cpu"},
@@ -44,15 +44,13 @@ def verify(wheels: list[Path], require_all: bool = True) -> list[dict]:
             for backend in PLATFORMS[platform]:
                 if not any(item.startswith("mineru_llama_cpp/bin/") and Path(item).name.startswith(("ggml-" + backend, "libggml-" + backend)) and item.endswith((".so", ".dll")) for item in names):
                     raise ValueError(f"Missing {backend} MODULE: {wheel.name}")
-            for backend in ("cuda", "sycl"):
+            for backend in ("sycl",):
                 if backend not in PLATFORMS[platform]:
                     continue
                 manifest = json.loads(archive.read(f"mineru_llama_cpp/bin/{backend}-build.json"))
                 commits.add(manifest["llama_cpp_commit"])
                 if manifest["backend"] != backend or f"mineru_llama_cpp/bin/{manifest['module']}" not in names:
                     raise ValueError(f"Invalid {backend} manifest: {wheel.name}")
-                if platform == "manylinux_2_28_aarch64" and "sm_121" not in manifest["device_code"]:
-                    raise ValueError("ARM64 CUDA wheel is missing GB10 device code")
                 if platform == "win_amd64" and backend == "sycl":
                     if not manifest["bundled_runtime"] or not any(item.startswith("mineru_llama_cpp/bin/licenses/oneapi/") for item in names):
                         raise ValueError("Windows SYCL runtime and license notices are required")
@@ -63,8 +61,8 @@ def verify(wheels: list[Path], require_all: bool = True) -> list[dict]:
                             raise ValueError(f"Missing bundled runtime: {runtime}")
             for item in names:
                 basename = Path(item).name.lower()
-                if basename.startswith(("cudart", "cublas", "libcudart", "libcublas")) and item.endswith((".dll", ".so", ".so.12", ".so.13")):
-                    raise ValueError(f"CUDA runtime must remain external: {item}")
+                if "ggml-cuda" in basename or basename == "cuda-build.json" or basename.startswith(("nvcuda", "cudart", "cublas", "nvrtc", "nvjitlink", "libcuda", "libcublas", "libnvrtc", "libnvjitlink")):
+                    raise ValueError(f"CUDA backend/runtime is not supported: {item}")
                 if platform.startswith("manylinux") and basename.startswith(EXTERNAL_LINUX_PREFIXES):
                     raise ValueError(f"Linux GPU runtime must remain external: {item}")
         reports.append({"wheel": wheel.name, "platform": platform, "required_backends": sorted(PLATFORMS[platform]), "extension": extensions[0]})

@@ -13,10 +13,10 @@ def main() -> None:
     if "--without-external-gpu-runtime" in sys.argv:
         # 在新进程中移除构建工具链搜索路径，验证 CPU 不依赖外部 GPU 运行库。
         environment = os.environ.copy()
-        for name in ("CUDA_PATH", "ONEAPI_ROOT", "LD_LIBRARY_PATH"):
+        for name in ("ONEAPI_ROOT", "LD_LIBRARY_PATH"):
             environment.pop(name, None)
         environment["PATH"] = os.pathsep.join(path for path in environment.get("PATH", "").split(os.pathsep)
-                                              if not any(word in path.lower() for word in ("oneapi", "mineru-cuda", "cuda\\", "cuda/")))
+                                              if "oneapi" not in path.lower())
         subprocess.run([sys.executable, str(Path(__file__).resolve())], env=environment, check=True)
         return
     import mineru_llama_cpp
