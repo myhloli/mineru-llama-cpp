@@ -28,6 +28,7 @@ if os.name == "nt":
         _pkg / "lib",
         _pkg.parent / "bin",
         _pkg.parent.parent / "bin",
+        *([Path(os.environ["CUDA_PATH"]) / "bin"] if os.environ.get("CUDA_PATH") else []),
     ]:
         if _d.is_dir():
             _dll_directory_handles.append(os.add_dll_directory(str(_d)))

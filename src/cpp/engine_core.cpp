@@ -8,7 +8,10 @@
 #include "llama.h"
 #include "log.h"
 #include "gguf.h"
+#include "backend_policy.h"
 
+#include <cctype>
+#include <cstdlib>
 #include <filesystem>
 #include <stdexcept>
 #include <string>
@@ -105,6 +108,7 @@ int read_n_ctx_train_from_gguf(const std::string & model_path) {
 #if defined(__GNUC__) || defined(__clang__)
 __attribute__((noinline))
 #endif
+// 提供稳定地址，定位当前扩展的安装目录。
 void engine_core_module_anchor() {}
 
 void load_packaged_backends() {
@@ -196,6 +200,42 @@ EngineCore::Timings extract_timings(const json & j) {
     return t;
 }
 
+// 从已加载设备中选择一个后端，模型与视觉投影使用相同设备集合。
+void select_engine_backend(common_params & params, int requested_layers) {
+    const char * environment = std::getenv("MINERU_LLAMA_CPP_BACKEND");
+    const std::string requested = environment ? environment : "auto";
+    std::vector<mineru_llama_cpp::BackendDevice> candidates;
+    for (size_t index = 0; index < ggml_backend_dev_count(); ++index) {
+        auto * device = ggml_backend_dev_get(index);
+        const auto type = ggml_backend_dev_type(device);
+        if (type != GGML_BACKEND_DEVICE_TYPE_GPU && type != GGML_BACKEND_DEVICE_TYPE_IGPU) continue;
+        const auto backend = mineru_llama_cpp::canonical_backend_name(
+            ggml_backend_reg_name(ggml_backend_dev_backend_reg(device)));
+        candidates.push_back({backend, type == GGML_BACKEND_DEVICE_TYPE_IGPU, index});
+    }
+    const auto selected = mineru_llama_cpp::select_backend_devices(candidates, requested, requested_layers == 0);
+    params.devices.clear();
+    for (size_t index : selected) {
+        auto * device = ggml_backend_dev_get(index);
+        params.devices.push_back(device);
+        LOG_INF("mineru-llama-cpp: selected %s (%s), backend=%s\n", ggml_backend_dev_name(device),
+                ggml_backend_dev_description(device), ggml_backend_reg_name(ggml_backend_dev_backend_reg(device)));
+    }
+    if (selected.empty()) {
+        // 非空的空设备列表阻止 llama.cpp 再次自动挑选其他 GPU。
+        params.devices.push_back(nullptr);
+        params.n_gpu_layers = 0;
+        params.mmproj_use_gpu = false;
+        LOG_INF("mineru-llama-cpp: selected CPU (requested=%s); no eligible GPU backend or CPU forced\n", requested.c_str());
+    } else {
+        params.mmproj_use_gpu = true;
+        params.mmproj_device = params.devices.front();
+        for (const auto & candidate : candidates)
+            if (std::find(selected.begin(), selected.end(), candidate.index) == selected.end())
+                LOG_DBG("mineru-llama-cpp: skipped backend %s for this engine\n", candidate.backend.c_str());
+    }
+}
+
 } // namespace
 
 EngineCore::EngineCore(const std::string & model_path, const std::string & mmproj_path,
@@ -272,12 +312,18 @@ EngineCore::EngineCore(const std::string & model_path, const std::string & mmpro
     // registered and skips its own (Python-interpreter-directory) search,
     // which would never find our bundled MODULEs anyway.
     load_packaged_backends();
+    if (!ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_CPU)) {
+        throw std::runtime_error("Packaged CPU backend is unavailable; check the installation's bin directory");
+    }
     llama_backend_init();
     llama_numa_init(params_.numa);
 
-    if (!ctx_.load_model(params_)) {
+    try {
+        select_engine_backend(params_, n_gpu_layers);
+        if (!ctx_.load_model(params_)) throw std::runtime_error("load_model failed");
+    } catch (...) {
         llama_backend_free();
-        throw std::runtime_error("load_model failed");
+        throw;
     }
     meta_ = std::make_unique<server_context_meta>(ctx_.get_meta());
     loop_thread_ = std::thread([this] { ctx_.start_loop(); });

@@ -1,22 +1,7 @@
 name: Publish wheels to PyPI (manual)
 
-# Manual release helper: publish a filtered subset of wheels produced by an
-# existing build-wheels run, without re-tagging.
-#
-# Primary use case: appending wheels for a newly-supported Python version
-# (e.g. cp314) to an already-released version on PyPI. PyPI rejects re-uploads
-# of existing file names but accepts new file names under an existing version,
-# so "release 0.1.0, then add cp314 later" is a legitimate operation — it just
-# cannot go through the tag-triggered publish job in build-wheels.yml, because
-# that job uploads every artifact and would die on the 32 already-published
-# file names (v0.1.0 tag already exists and cannot be re-pointed).
-#
-# Security notes:
-# - workflow_dispatch can only be triggered by collaborators with write access,
-#   so PYPI_TOKEN is never exposed to untrusted input.
-# - The token itself lives only in repo secrets; it never appears in logs.
-# - The wheel_glob input only filters which local files get uploaded; it cannot
-#   alter the upload destination or credentials.
+# 从已完成的构建运行中选择 abi3 产物；上传前验证平台、ABI 及运行库边界。
+# 允许明确筛选部分平台，避免重传 PyPI 上已经存在的同名文件。
 
 on:
   workflow_dispatch:
@@ -28,7 +13,7 @@ on:
       wheel_glob:
         description: 'fnmatch pattern (against the file basename) selecting which wheels to upload'
         required: false
-        default: '*cp314-*'
+        default: '*cp310-abi3-*'
 
 permissions:
   contents: read
@@ -51,6 +36,16 @@ jobs:
           find dist -name '*.whl' ! -name "${{ inputs.wheel_glob }}" -delete
           echo "Wheels selected for upload:"
           ls -la dist/
+
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify selected stable-ABI wheels
+        run: |
+          pip install packaging abi3audit
+          python tools/verify_wheels.py dist --allow-subset
+          abi3audit --strict dist/*.whl
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1

@@ -3,7 +3,7 @@
 In-process llama.cpp VLM inference engine for MinerU, exposing a single
 `Engine` class with synchronous and asynchronous generate/stream methods.
 Wraps a pinned build of [llama.cpp](https://github.com/ggml-org/llama.cpp)
-(no HTTP layer, no subprocess) via pybind11.
+(no HTTP layer, no subprocess) via the CPython Limited API.
 
 Current source pins llama.cpp to `86a283532072722c5f3363d37d59a874d09fa99b`.
 macOS source builds and wheels require macOS 14 or newer. This source update
@@ -40,50 +40,91 @@ Key build decisions (all in top-level `CMakeLists.txt`):
 
 ## CI wheels
 
-Push to `main` (or a `v*` tag) triggers
-[`build-wheels.yml`](.github/workflows/build-wheels.yml), which builds
-40 wheels via cibuildwheel — 5 Python versions (3.10–3.14) × 8
-platform/arch combos:
+Current source targets six `cp310-abi3` wheels. A wheel is reused across
+standard, GIL-enabled CPython 3.10–3.14, with installation tests on each
+version. The released 0.1.2 wheels predate this migration; rebuild from
+source or use a validated candidate to try the new backends.
 
-| Platform | Wheel tag | Backend | Runner |
+| Platform | Wheel platform tag | Packaged backends | External GPU requirements |
 |---|---|---|---|
-| macOS arm64 | `macosx_14_0_arm64` | Metal + CPU | macos-26, Xcode 26.6 |
-| macOS x86_64 | `macosx_14_0_x86_64` | CPU only | macos-26 + Rosetta 2, Xcode 26.6 |
-| Linux x86_64 (glibc) | `manylinux_2_34_x86_64` | Vulkan + CPU | ubuntu-latest |
-| Linux aarch64 (glibc) | `manylinux_2_34_aarch64` | Vulkan + CPU | ubuntu-24.04-arm |
-| Linux x86_64 (musl) | `musllinux_1_2_x86_64` | CPU only | ubuntu-latest |
-| Linux aarch64 (musl) | `musllinux_1_2_aarch64` | CPU only | ubuntu-24.04-arm |
-| Windows x86_64 | `win_amd64` | Vulkan + CPU | windows-latest (MSVC) |
-| Windows arm64 | `win_arm64` | CPU only | windows-11-arm (clang-cl) |
+| Linux x86_64 | `manylinux_2_28_x86_64` | CPU, Vulkan, CUDA, SYCL | Driver; Vulkan loader; matching CUDA/oneAPI runtime when used |
+| Linux aarch64 (SBSA) | `manylinux_2_28_aarch64` | CPU, Vulkan, CUDA | Driver; Vulkan loader; ARM64 CUDA 13.x runtime when used |
+| Windows AMD64 | `win_amd64` | CPU, Vulkan, CUDA, SYCL | Driver; CUDA 12.x runtime when used; SYCL runtime is bundled |
+| Windows ARM64 | `win_arm64` | CPU | None |
+| macOS arm64 | `macosx_14_0_arm64` | CPU, Metal | macOS 14+ |
+| macOS x86_64 | `macosx_14_0_x86_64` | CPU | macOS 14+ |
 
-Each Linux wheel bundles `libgomp.so.1` (OpenMP runtime) and the Vulkan
-loader, so users don't need to preinstall them. The Linux x86_64 glibc
-wheel requires an x86_64-v3 CPU (AVX2/FMA/BMI2/F16C) — ggml-cpu enables
-these by default at compile time. `auditwheel repair --disable-isa-ext-check`
-bypasses the v1-baseline ISA audit; the wheel tag stays plain
-`manylinux_2_34_x86_64` for pip compatibility, matching how numpy/scipy
-ship v3-requiring wheels.
+Alpine/musllinux wheels are no longer built. Linux CPU wheels bundle
+`libgomp.so.1`; Linux x86_64 retains the existing x86_64-v3 CPU requirement
+(AVX2/FMA/BMI2/F16C). The glibc tag does not describe CPU instruction support.
+AMD RDNA3/4 GPUs use Vulkan, without a ROCm installation.
 
-musllinux (Alpine) wheels are CPU-only because Alpine's shaderc 2024.4
-fails to optimize ggml-vulkan's SPIR-V shaders (VUID-StandaloneSpirv-
-None-10684). glibc-based Linux wheels include the Vulkan backend.
+CUDA and SYCL are optional dynamically loaded modules. Missing runtime
+libraries or devices leave Vulkan/CPU available and do not prevent importing
+the Python package. CUDA runtime libraries are not bundled on either OS.
+Windows packages bundle the oneAPI SYCL, oneMKL, oneDNN, and supporting runtime
+DLLs plus license notices. GPU drivers are always provided by the system.
 
-macOS x86_64 wheels are CPU-only because Apple deprecated Metal on
-Intel Macs; the wheel ships no `libggml-metal.dylib`. macOS arm64
-wheels include Metal by default.
+DGX Spark (GB10, compute capability 12.1) uses the aarch64 wheel. The ARM64
+CUDA module is built with CUDA 13.0 and includes `sm_121` native code; use the
+CUDA environment provided by DGX OS. Other ARM64 SBSA CUDA GPUs can use the
+compiled architecture set. Jetson/JetPack compatibility requires separate
+validation.
 
-Every wheel runs a model-free installation check outside the checkout,
-including loading its packaged CPU backend. macOS wheels also audit all
-Mach-O deployment targets, architectures and library paths. An additional
-macos-15 / Xcode 16.4 job checks the older SDK. These checks do not establish
-model execution on every chip or macOS version; GPU execution is reported
-as untested when the runner exposes no GPU.
+Every wheel is checked outside the checkout, including a child process with
+external CUDA/oneAPI search paths removed, and must load its packaged CPU
+backend. Strict ABI auditing verifies the Python 3.10 floor. macOS also audits
+Mach-O deployment targets and dependencies. CPU-only CI does not establish
+GPU execution or full MinerU extraction correctness; device-specific evidence
+is recorded separately in [the validation record](docs/abi3-backends-validation.md).
 
-Windows x86_64 uses MSVC (`ilammy/msvc-dev-cmd` GHA action + QtIF
-silent install for LunarG Vulkan SDK). Windows arm64 uses `clang-cl`
-on a native `windows-11-arm` runner — llama.cpp's ggml-cpu rejects
-MSVC on ARM (CMakeLists.txt:106), so the override forces clang-cl
-which VS's LLVM component provides.
+### Backend selection
+
+Set `MINERU_LLAMA_CPP_BACKEND` before constructing an engine:
+
+```bash
+MINERU_LLAMA_CPP_BACKEND=auto python your_script.py
+```
+
+Values: `auto` (default), `cpu`, `cuda`, `sycl`, `vulkan`, `metal`.
+Automatic selection prefers discrete GPUs over integrated GPUs, then CUDA,
+SYCL, Metal, and Vulkan within the same device class. Each engine selects one
+backend and may use multiple devices from it; its model and multimodal
+projector use that backend. GB10's integrated CUDA GPU remains eligible.
+`n_gpu_layers=0` forces CPU. Explicitly requesting an unavailable backend
+raises an error. Errors after inference starts are surfaced without retrying
+the request on another backend. Use `verbosity=LOG_LEVEL_INFO` to see the
+chosen backend/device, and `LOG_LEVEL_DEBUG` for native loading details.
+
+### External runtimes
+
+For Linux CUDA, install the CUDA runtime and cuBLAS matching the packaged
+module (12.x on x86_64, 13.x on aarch64), and expose its `lib64` directory to
+the dynamic linker, for example through `LD_LIBRARY_PATH`. An NVIDIA driver
+alone does not provide cuBLAS. The compiler and full development toolkit are
+only required when building from source.
+
+For Linux SYCL, install oneAPI runtime libraries matching the 2026.1.1 build,
+including SYCL, oneMKL BLAS, oneDNN, TBB and their dependencies. Activate the
+installed oneAPI environment before starting Python, such as:
+
+```bash
+source /opt/intel/oneapi/setvars.sh
+python your_script.py
+```
+
+Intel GPU acceleration also requires the Intel GPU driver/Level Zero stack.
+Without that runtime, automatic selection uses Vulkan or CPU.
+
+On Windows, `CUDA_PATH/bin` is added to the DLL search path when importing
+the package. Point `CUDA_PATH` at a CUDA 12.x runtime/toolkit containing the
+required DLLs before launching Python. SYCL requires an Intel GPU driver;
+its user-space runtime libraries are already in the wheel.
+
+Release CI independently builds optional GPU modules using their respective
+compilers, stages only the new modules, and verifies their llama.cpp commit
+matches the core. The aggregate release check requires exactly six wheels.
+The macOS build still includes the Xcode 16.4 compatibility check.
 
 ## Install (development)
 

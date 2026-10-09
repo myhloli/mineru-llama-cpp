@@ -10,17 +10,19 @@ import pytest
 @pytest.fixture(scope="session")
 def utf8_decoder(tmp_path_factory):
     """在临时目录构建测试扩展，复用生产头文件并保留编译失败的诊断。"""
-    from pybind11.setup_helpers import Pybind11Extension, build_ext
-    from setuptools import Distribution
+    from setuptools import Distribution, Extension
+    from setuptools.command.build_ext import build_ext
 
     root = Path(__file__).resolve().parents[1]
     output = tmp_path_factory.mktemp("utf8_decoder")
-    extension = Pybind11Extension(
+    extension = Extension(
         "_utf8_decode_test",
         [str(root / "tests/native/utf8_decode_binding.cpp")],
         include_dirs=[str(root / "src/cpp")],
-        extra_compile_args=["/utf-8"] if sys.platform == "win32" else [],
-        cxx_std=11,
+        define_macros=[("Py_LIMITED_API", "0x030A0000")],
+        py_limited_api=True,
+        extra_compile_args=["/utf-8", "/std:c++17"] if sys.platform == "win32" else ["-std=c++17"],
+        language="c++",
     )
     command = build_ext(Distribution({"ext_modules": [extension]}))
     command.build_lib = str(output)

@@ -1,10 +1,11 @@
-set(PYBIND11_FINDPYTHON ON)
-find_package(pybind11 CONFIG REQUIRED)
+find_package(Python 3.10 REQUIRED COMPONENTS Interpreter Development.SABIModule)
 
-pybind11_add_module(_mineru_llama_cpp
+Python_add_library(_mineru_llama_cpp MODULE USE_SABI 3.10 WITH_SOABI
     binding.cpp
     engine_core.cpp
 )
+set_target_properties(_mineru_llama_cpp PROPERTIES
+    CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
 
 # dladdr() (engine_core.cpp's load_packaged_backends()) is a glibc extension;
 # its declaration in <dlfcn.h> is hidden unless _GNU_SOURCE is defined --
@@ -116,6 +117,23 @@ if (SKBUILD_STATE STREQUAL "editable")
 endif()
 
 install(TARGETS _mineru_llama_cpp DESTINATION mineru_llama_cpp)
+
+# 可选 GPU 后端只携带 MODULE；manifest 必须与当前公共库的源码提交一致。
+if (DEFINED ENV{MINERU_EXTRA_BACKENDS_DIR} AND NOT "$ENV{MINERU_EXTRA_BACKENDS_DIR}" STREQUAL "")
+    set(MINERU_EXTRA_BACKENDS_DIR "$ENV{MINERU_EXTRA_BACKENDS_DIR}")
+    file(GLOB MINERU_BACKEND_MANIFESTS "${MINERU_EXTRA_BACKENDS_DIR}/*-build.json")
+    if (NOT MINERU_BACKEND_MANIFESTS)
+        message(FATAL_ERROR "GPU staging directory contains no build manifests")
+    endif()
+    foreach(manifest IN LISTS MINERU_BACKEND_MANIFESTS)
+        file(READ "${manifest}" manifest_json)
+        string(JSON backend_commit GET "${manifest_json}" llama_cpp_commit)
+        if (NOT backend_commit STREQUAL MINERU_LLAMA_CPP_LLAMA_COMMIT)
+            message(FATAL_ERROR "GPU backend and ggml core were built from different llama.cpp commits")
+        endif()
+    endforeach()
+    install(DIRECTORY "${MINERU_EXTRA_BACKENDS_DIR}/" DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()
 
 # llama-server links against this at runtime (@rpath/libllama-server-impl.dylib),
 # but llama.cpp's own tools/server/CMakeLists.txt only installs it when

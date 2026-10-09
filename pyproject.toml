@@ -1,5 +1,5 @@
 [build-system]
-requires = ["scikit-build-core>=0.10", "pybind11"]
+requires = ["scikit-build-core>=0.10"]
 build-backend = "scikit_build_core.build"
 
 [project]
@@ -10,10 +10,12 @@ requires-python = ">=3.10"
 dependencies = []
 
 [project.optional-dependencies]
-test = ["pytest>=7.0", "pytest-asyncio>=0.23", "pillow", "pybind11", "setuptools"]
+test = ["pytest>=7.0", "pytest-asyncio>=0.23", "pillow", "setuptools"]
 
 [tool.scikit-build]
 cmake.build-type = "Release"
+cmake.version = ">=3.26"
+wheel.py-api = "cp310"
 wheel.packages = ["src/mineru_llama_cpp"]
 build-dir = "build"
 # 排除源码中的 editable 原生产物；wheel 扩展始终由 CMake install 提供。
@@ -45,6 +47,8 @@ sdist.exclude = ["src/mineru_llama_cpp/*.so", "src/mineru_llama_cpp/*.pyd"]
 # "include/").
 wheel.exclude = [
     "include/**",
+    "mineru_llama_cpp/_mineru_llama_cpp.cpython-*.so",
+    "mineru_llama_cpp/_mineru_llama_cpp.cp*.pyd",
     "mineru_llama_cpp/lib/cmake/**",
     "mineru_llama_cpp/lib/pkgconfig/**",
     "mineru_llama_cpp/lib/*.*.*.*.dylib",                 # macOS full-version libX.0.17.0.dylib
@@ -72,101 +76,26 @@ python_files = "test_*.py"
 asyncio_mode = "auto"
 norecursedirs = ["legacy_spike"]
 
-# --- cibuildwheel: cross-platform wheel building ---
-#
-# Builds 8 wheels per Python version (3.10–3.14) = 40 total (8 platform/arch
-# combos: macOS arm64/x86_64, Linux x86_64/aarch64 × manylinux/musllinux,
-# Windows AMD64/ARM64):
-#   macOS arm64 (Metal)    — no extra flags, Metal auto-detected
-#   Linux x86_64 (Vulkan)  — vulkan-headers + vulkan-loader-devel + glslc
-#                            from AlmaLinux 9 appstream repo (no LunarG repo
-#                            needed; LunarG only publishes apt .list files).
-#   Linux aarch64 (Vulkan) — same, native arm64 runner
-#   Windows x86_64 (Vulkan) — SDK downloaded from sdk.lunarg.com and 7z-
-#                             extracted to C:\VulkanSDK (NSIS installer doesn't
-#                             support silent install flags). CMAKE_GENERATOR=
-#                             Ninja avoids VS multi-config Release/ subdir
-#                             issue; /utf-8 is already in CMakeLists.txt.
-#
-# 无模型安装检查验证真实 wheel 的扩展和打包后端。
-# The patch auto-application (patches/llama.cpp/*.patch) requires git in
-# the build container — installed via before-all.
-
+# 六个平台各发布一个 cp310-abi3 wheel，仍在 Python 3.10–3.14 上复用并测试。
 [tool.cibuildwheel]
 build = "cp310-* cp311-* cp312-* cp313-* cp314-*"
-# musllinux (Alpine) — included since some MinerU users run Alpine-based
-# containers. musllinux has its own platform tag namespace, and auditwheel
-# auto-detects the right tag (musllinux_1_2_x86_64 etc).
+skip = "*-musllinux_*"
 build-frontend = "build"
-test-command = "python {project}/tools/wheel_smoke.py"
-# manylinux_2_34 (glibc 2.34) — llama.cpp's vendored subprocess.h uses
-# posix_spawn_file_actions_addchdir_np, which requires glibc >= 2.29.
-# manylinux_2_28 (glibc 2.28) doesn't have it.
-manylinux-x86_64-image = "manylinux_2_34"
-manylinux-aarch64-image = "manylinux_2_34"
-musllinux-x86_64-image = "musllinux_1_2"
-musllinux-aarch64-image = "musllinux_1_2"
+test-requires = ["pytest", "pytest-asyncio", "pillow", "setuptools"]
+test-command = "python {project}/tools/wheel_smoke.py --without-external-gpu-runtime && python -m pytest {project}/tests/test_output_utf8.py {project}/tests/test_backend_policy.py {project}/tests/test_binding_contract.py -q"
+manylinux-x86_64-image = "manylinux_2_28"
+manylinux-aarch64-image = "manylinux_2_28"
 
 [tool.cibuildwheel.linux]
-# Vulkan deps come from AlmaLinux 9's own appstream repo (no LunarG repo
-# needed — LunarG only publishes apt .list files, not yum/dnf .repo files).
-# - vulkan-headers + vulkan-loader-devel: headers and libvulkan.so symlink
-# - glslc: SPIR-V shader compiler (part of shaderc; FindVulkan component)
-# - glslang: provides glslangValidator (optional FindVulkan component;
-#   silences the "missing components: glslangValidator" warning)
-# - spirv-headers-devel: provides SPIRV-HeadersConfig.cmake, which
-#   ggml-vulkan/CMakeLists.txt:14's find_package(SPIRV-Headers CONFIG
-#   REQUIRED) needs — without it the configure step fails.
-# git is needed for the patches/llama.cpp/*.patch auto-apply step in the
-# top-level CMakeLists.txt (uses `git apply`).
-environment = { SKBUILD_CMAKE_ARGS = "-DGGML_VULKAN=ON" }
-before-all = "yum install -y git vulkan-headers vulkan-loader-devel glslc glslang spirv-headers-devel"
-# Clean the build directory before each Python version's build. scikit-build-core's
-# build-dir = "build" reuses the same path across Python versions; llama.cpp's
-# vulkan-shaders-gen ExternalProject (BUILD_ALWAYS TRUE) doesn't tolerate this —
-# its stamps end up inconsistent on the 2nd+ build, and ninja fails with
-# "no such file or directory" trying to cd into a non-existent build subdir.
+environment = { SKBUILD_CMAKE_ARGS = "-DGGML_VULKAN=ON", VULKAN_SDK = "/opt/mineru-vulkan", CMAKE_PREFIX_PATH = "/opt/mineru-vulkan", MINERU_EXTRA_BACKENDS_DIR = "/opt/mineru-gpu-backends" }
+before-all = "bash {project}/tools/setup_linux_gpu.sh"
 before-build = "rm -rf build"
-# ggml-cpu enables AVX2/FMA/BMI2/F16C by default (all x86_64-v3 instructions).
-# auditwheel detects this and refuses to repair to manylinux_2_34_x86_64
-# (v1 baseline) without --disable-isa-ext-check. We disable the check —
-# the resulting wheel still carries the manylinux_2_34_x86_64 tag (so pip
-# will install it on any x86_64 Linux), but it actually requires a v3 CPU
-# to run. This matches how most numerical Python packages (numpy, scipy)
-# ship v3-requiring wheels under plain manylinux tags.
-#
-# --exclude libvulkan.so.1: Vulkan loader is a user-installed runtime
-# dependency, not a wheel-bundled one. Vulkan is an optional accelerator
-# (GGML_BACKEND_DL=ON); if the user has no Vulkan ICD driver installed,
-# the Vulkan backend should gracefully fall back to CPU. Bundling the
-# loader (auditwheel default) only makes libggml-vulkan.so dlopen-able
-# without a real Vulkan stack — it doesn't add GPU support. Machines
-# with a GPU driver already have the loader installed (ICD packages
-# depend on it). Excluding libvulkan.so.1 keeps the wheel 3.1 MB
-# smaller and lets GGML_BACKEND_DL's fallback design work as intended.
-repair-wheel-command = "auditwheel repair --disable-isa-ext-check --exclude libvulkan.so.1 -w {dest_dir} {wheel}"
-
-# musllinux (Alpine) — Vulkan deps via apk (Alpine package names:
-# spirv-headers-devel (EL) → spirv-headers (Alpine), rest match; shaderc
-# provides glslc). Vulkan is disabled on musllinux because Alpine's
-# shaderc 2024.4 fails to optimize some SPIR-V shaders used by ggml-vulkan
-# (VUID-StandaloneSpirv-None-10684). CPU-only is fine for Alpine users
-# (most run containers without a GPU anyway).
-[[tool.cibuildwheel.overrides]]
-select = "cp*-musllinux_*"
-inherit = { "environment" = "none", "before-all" = "none" }
-environment = { SKBUILD_CMAKE_ARGS = "" }
-before-all = "apk add --no-cache git"
+repair-wheel-command = "python {project}/tools/repair_linux_wheel.py --wheel {wheel} --destination {dest_dir}"
 
 [tool.cibuildwheel.macos]
-# 使用新 SDK 构建、以 macOS 14 为最低目标，运行时选择 Metal 能力。
 archs = ["arm64", "x86_64"]
 environment = { MACOSX_DEPLOYMENT_TARGET = "14.0", SKBUILD_CMAKE_ARGS = "-DGGML_METAL=ON;-DGGML_METAL_EMBED_LIBRARY=ON" }
 
-# Intel Mac build — disable Metal backend (it doesn't work on Intel,
-# per upstream llama.cpp Metal issue tracker, and adds wheel bloat).
-# ggml-cpu handles all inference; CPU backend is sufficient on Intel
-# Macs which are old hardware at this point anyway.
 [[tool.cibuildwheel.overrides]]
 select = "cp*-macosx_x86_64"
 inherit = { "environment" = "none", "before-all" = "none" }
@@ -174,51 +103,15 @@ environment = { SKBUILD_CMAKE_ARGS = "-DGGML_METAL=OFF", MACOSX_DEPLOYMENT_TARGE
 before-all = "brew install ninja"
 
 [tool.cibuildwheel.windows]
-# Force Ninja generator — Visual Studio generator (default) is multi-config
-# and puts the .pyd in a Release/ subdirectory, which Python can't find.
-# /utf-8 is already in CMakeLists.txt (handles non-English Windows).
-# MSVC compiler setup is handled by the ilammy/msvc-dev-cmd@v1 GHA action
-# in .github/workflows/build-wheels.yml, which calls vcvars64.bat and adds
-# the MSVC bin directory to PATH before cibuildwheel spawns the build.
-# This avoids the MinGW compiler that GHA Windows runners ship in PATH —
-# MinGW-compiled DLLs depend on libgcc_s_seh-1.dll, libstdc++-6.dll,
-# libwinpthread-1.dll, none of which are on end-user machines. MSVC-built
-# DLLs link against vcruntime140.dll/msvcp140.dll, which the Python
-# interpreter already ships, so no extra runtime dependency is added.
-# Vulkan SDK: download the official .exe from sdk.lunarg.com and extract
-# with 7z (the NSIS installer doesn't support silent install flags; 7z
-# treats the .exe as a self-extracting archive and just unpacks the files).
-# VULKAN_SDK env var lets CMake's FindVulkan locate headers + libs + glslc
-# (under $VULKAN_SDK/Bin). 7-Zip is preinstalled on GHA Windows runners.
-# Note: before-all runs via cmd /c on Windows (cibuildwheel), not PowerShell
-# — single quotes are passed literally to native commands, which broke
-# curl's URL parsing (exit 3 = URL malformed). Use double quotes for args
-# that need quoting; URL and -o<dir> don't need quotes (no spaces).
-# Disable delvewheel — our DLLs are already in bin/ and lib/ inside the
-# wheel, and __init__.py adds those to the DLL search path via
-# os.add_dll_directory(). delvewheel can't find them during its scan
-# (it only looks next to the .pyd), so it errors out.
-repair-wheel-command = ""
-environment = { CMAKE_GENERATOR = "Ninja", VULKAN_SDK = "C:\\VulkanSDK", SKBUILD_CMAKE_ARGS = "-DGGML_VULKAN=ON" }
-before-all = "pip install ninja && curl.exe -sL -o vulkan_sdk.exe \"https://sdk.lunarg.com/sdk/download/1.4.350.0/windows/vulkan_sdk.exe\" && .\\vulkan_sdk.exe -t C:\\VulkanSDK --accept-licenses --default-answer --confirm-command install"
-# Clean stale .pyd from previous Python-version builds in the source tree
-# (scikit-build-core's editable "inplace" mode writes to src/mineru_llama_cpp/,
-# and the wheel.packages glob picks up every _mineru_llama_cpp.cp*.pyd it finds,
-# so without this clean-up cp310's wheel would also contain cp311/cp312 .pyd).
-before-build = "if exist src\\mineru_llama_cpp\\_mineru_llama_cpp.cp*.pyd del /q src\\mineru_llama_cpp\\_mineru_llama_cpp.cp*.pyd"
 archs = ["AMD64"]
+repair-wheel-command = ""
+environment = { CMAKE_GENERATOR = "Ninja", VULKAN_SDK = 'C:\VulkanSDK', CUDA_PATH = 'C:\mineru-cuda', ONEAPI_ROOT = 'C:\Program Files (x86)\Intel\oneAPI', MINERU_EXTRA_BACKENDS_DIR = 'C:\mineru-gpu-backends', SKBUILD_CMAKE_ARGS = "-DGGML_VULKAN=ON" }
+before-all = "pip install ninja cmake pefile && python {project}/tools/setup_windows_gpu.py"
+before-build = "python {project}/tools/clean_native_artifacts.py"
 
-# ARM64 build runs on windows-11-arm runner (native ARM64, not cross-compile).
-# llama.cpp's ggml-cpu rejects MSVC on ARM (CMakeLists.txt:106: "MSVC is not
-# supported for ARM, use clang"), so force clang-cl — GHA Windows runners
-# ship VS's LLVM component which provides clang-cl for ARM64. Vulkan is
-# skipped on ARM64 for now (LunarG SDK's ARM64 vulkan-1.lib isn't in the
-# standard x64 SDK; ARM64 Windows devices mostly have weak iGPUs anyway).
-# OpenMP is OFF on ARM64 (ggml-cpu's ARM OpenMP path untested, libomp ARM64
-# not in wheel).
 [[tool.cibuildwheel.overrides]]
 select = "cp*-win_arm64"
 inherit = { "environment" = "none", "before-all" = "none", "before-build" = "none" }
 environment = { CMAKE_GENERATOR = "Ninja", SKBUILD_CMAKE_ARGS = "-DCMAKE_C_COMPILER=clang-cl;-DCMAKE_CXX_COMPILER=clang-cl;-DGGML_OPENMP=OFF" }
 before-all = "pip install ninja"
-before-build = "if exist src\\mineru_llama_cpp\\_mineru_llama_cpp.cp*.pyd del /q src\\mineru_llama_cpp\\_mineru_llama_cpp.cp*.pyd"
+before-build = "python {project}/tools/clean_native_artifacts.py"
