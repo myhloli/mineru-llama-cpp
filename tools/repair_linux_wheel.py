@@ -1,9 +1,11 @@
 """审计 Linux ELF 下限，仅将非 GPU 运行库依赖修复进 wheel。"""
 from __future__ import annotations
 import argparse
+import json
 from pathlib import Path
 import re
 import subprocess
+import shutil
 import tempfile
 import zipfile
 
@@ -20,7 +22,11 @@ def inspect_elf(path: Path) -> tuple[set[str], set[str]]:
     versions = set()
     for line in symbols.splitlines():
         if " UND " in line:
-            versions.update(re.findall(r"@((?:GLIBC|GLIBCXX|CXXABI)_[0-9.]+)", line))
+            versions.update(re.findall(r"@([A-Za-z][A-Za-z0-9_]*_[0-9.]+)", line))
+    # 无对应 UND 符号的 ABI 标记也属于依赖，例如 GLIBC_ABI_DT_RELR。
+    information = subprocess.check_output(["readelf", "--version-info", "--wide", str(path)], text=True)
+    if "Version needs section" in information:
+        versions.update(re.findall(r"Name: ([A-Za-z][A-Za-z0-9_.]+)", information.split("Version needs section", 1)[1]))
     return needed, versions
 
 
@@ -42,7 +48,7 @@ def inspect_wheel(wheel: Path) -> tuple[dict, set[str]]:
             if any(name.startswith(("libcuda", "libcublas")) for name in needed):
                 raise RuntimeError(f"CUDA dependencies are not supported: {path.name} -> {needed}")
             for prefix, maximum in (("GLIBC_", (2, 28)), ("GLIBCXX_", (3, 4, 25)), ("CXXABI_", (1, 3, 11))):
-                required = [tuple(map(int, value.removeprefix(prefix).split("."))) for value in versions if value.startswith(prefix)]
+                required = [tuple(map(int, value.removeprefix(prefix).split("."))) for value in versions if value.startswith(prefix) and value.removeprefix(prefix)[0].isdigit()]
                 if any(version > maximum for version in required):
                     raise RuntimeError(f"{path.name} exceeds manylinux_2_28 {prefix} ABI floor: {versions}")
             external.update(name for name in needed if name.startswith(GPU_RUNTIME_PREFIXES))
@@ -52,20 +58,29 @@ def inspect_wheel(wheel: Path) -> tuple[dict, set[str]]:
 
 def repair(wheel: Path, destination: Path) -> None:
     """先审计原包，排除外部 GPU 库后修复，再审计最终发布包的全部 ELF。"""
-    _, external = inspect_wheel(wheel)
+    before, external = inspect_wheel(wheel)
+    diagnostics = Path(__file__).resolve().parents[1] / "build/ci-wheel-audits"
+    diagnostics.mkdir(parents=True, exist_ok=True)
+    (diagnostics / (wheel.stem + ".json")).write_text(json.dumps({"external_gpu_runtime": sorted(external), "elf": before}, indent=2))
     command = ["auditwheel", "repair", "--plat", "manylinux_2_28_" + ("aarch64" if "aarch64" in wheel.name else "x86_64"),
                "--disable-isa-ext-check", "-w", str(destination)]
     for name in sorted(external):
         command.extend(["--exclude", name])
     command.append(str(wheel))
-    subprocess.run(command, check=True)
+    try:
+        subprocess.run(command, check=True)
+    except subprocess.CalledProcessError:
+        # 失败候选单独保存，不参与六平台发布集合；保留证据供完整 ABI 诊断。
+        shutil.copy2(wheel, diagnostics / wheel.name)
+        subprocess.run(["auditwheel", "show", str(wheel)], check=False)
+        print(json.dumps(before, indent=2), flush=True)
+        raise
     prefix = wheel.name.rsplit("-", 1)[0] + "-"
     repaired = [path for path in destination.glob("*.whl") if path.name.startswith(prefix)]
     if len(repaired) != 1:
         raise RuntimeError(f"Expected one repaired wheel, got {repaired}")
     report, _ = inspect_wheel(repaired[0])
     # 报告写在 wheelhouse 之外，发布目录只收集真正的 wheel。
-    import json
     audit_dir = destination.parent / "wheel-audits"
     audit_dir.mkdir(parents=True, exist_ok=True)
     (audit_dir / (wheel.stem + ".json")).write_text(json.dumps({"external_gpu_runtime": sorted(external), "elf": report}, indent=2))

@@ -34,6 +34,12 @@ jobs:
       - name: Build wheels (Linux x86_64, CPU+Vulkan+SYCL)
         run: cibuildwheel --output-dir wheelhouse --archs x86_64
       - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: diagnostics-linux-x86_64
+          path: build/ci-wheel-audits/*
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
         with:
           name: wheels-linux-x86_64
           path: wheelhouse/*.whl
@@ -58,6 +64,12 @@ jobs:
         run: pip install cibuildwheel==4.3.0
       - name: Build wheels (Linux aarch64, CPU+Vulkan)
         run: cibuildwheel --output-dir wheelhouse --archs aarch64
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: diagnostics-linux-aarch64
+          path: build/ci-wheel-audits/*
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
           name: wheels-linux-aarch64
