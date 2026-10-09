@@ -1,6 +1,7 @@
 """独立编译可选 GPU MODULE，只暂存后端及 Windows SYCL 运行库。"""
 from __future__ import annotations
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -84,9 +85,11 @@ def build(backend: str, stage: Path, work: Path) -> None:
     """使用独立编译器构建 MODULE，不暂存 ggml 公共库或开发产物。"""
     stage.mkdir(parents=True, exist_ok=True)
     # 与主体配置保持相同补丁集合；重复构建时不重放已应用的补丁。
+    patch_hashes = {}
     for patch in sorted((ROOT / "patches/llama.cpp").glob("*.patch")):
         if patch.name.startswith("._"):
             continue
+        patch_hashes[patch.name] = hashlib.sha256(patch.read_bytes()).hexdigest()
         prefix = ["git", "-C", str(ROOT / "third_party/llama.cpp"), "apply"]
         if subprocess.run(prefix + ["--reverse", "--check", str(patch)], capture_output=True).returncode:
             subprocess.run(prefix + ["--check", str(patch)], check=True)
@@ -127,8 +130,11 @@ def build(backend: str, stage: Path, work: Path) -> None:
         architectures = subprocess.check_output([str(tool), "--list-elf", str(files[0])], text=True)
         if "sm_121" not in architectures:
             raise RuntimeError("GB10 sm_121 device code missing from ARM64 CUDA MODULE")
-    manifest = {"backend": backend, "llama_cpp_commit": llama_revision(),
-                "module": files[0].name, "bundled_runtime": runtime, "device_code": architectures}
+    compiler = str(Path(os.environ["CUDA_PATH"]) / "bin" / ("nvcc.exe" if os.name == "nt" else "nvcc")) if backend == "cuda" else "icx" if os.name == "nt" else "icpx"
+    # 同时保存编译器版本和补丁摘要，供合包时核验及设备复核时追溯。
+    toolchain = subprocess.check_output([compiler, "--version"], text=True, stderr=subprocess.STDOUT)
+    manifest = {"backend": backend, "llama_cpp_commit": llama_revision(), "patches": patch_hashes,
+                "module": files[0].name, "bundled_runtime": runtime, "device_code": architectures, "toolchain": toolchain}
     (stage / f"{backend}-build.json").write_text(json.dumps(manifest, indent=2))
 
 
