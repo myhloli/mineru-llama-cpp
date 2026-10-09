@@ -105,7 +105,7 @@ before-all = "brew install ninja"
 [tool.cibuildwheel.windows]
 archs = ["AMD64"]
 repair-wheel-command = ""
-environment = { CMAKE_GENERATOR = "Ninja", VULKAN_SDK = 'C:\VulkanSDK', CUDA_PATH = 'C:\mineru-cuda', ONEAPI_ROOT = 'C:\Program Files (x86)\Intel\oneAPI', MINERU_EXTRA_BACKENDS_DIR = 'C:\mineru-gpu-backends', SKBUILD_CMAKE_ARGS = "-DGGML_VULKAN=ON" }
+environment = { CMAKE_GENERATOR = "Ninja", VULKAN_SDK = "C:/VulkanSDK", CUDA_PATH = "C:/mineru-cuda", ONEAPI_ROOT = "C:/Program Files (x86)/Intel/oneAPI", MINERU_EXTRA_BACKENDS_DIR = "C:/mineru-gpu-backends", SKBUILD_CMAKE_ARGS = "-DGGML_VULKAN=ON" }
 before-all = "pip install ninja cmake pefile && python {project}/tools/setup_windows_gpu.py"
 before-build = "python {project}/tools/clean_native_artifacts.py"
 

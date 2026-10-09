@@ -113,7 +113,8 @@ void log_packaged_backend_status(const std::filesystem::path & directory) {
 #else
         const auto module = directory / (std::string("libggml-") + name + ".so");
 #endif
-        if (!std::filesystem::exists(module)) continue;
+        std::error_code error;
+        if (!std::filesystem::exists(module, error)) continue;
         auto * reg = ggml_backend_reg_by_name(std::string(name) == "metal" ? "MTL" : name);
         if (!reg) {
             LOG_DBG("mineru-llama-cpp: packaged %s backend did not register; check missing/incompatible runtime libraries\n", name);

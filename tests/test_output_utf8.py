@@ -42,6 +42,7 @@ def utf8_decoder(tmp_path_factory):
 @pytest.mark.parametrize(
     "text",
     ["", "ASCII", "中文é😀", "<|box_start|>中文<|box_end|>", "A\0中文B", "中" * 6000],
+    ids=["empty", "ascii", "unicode", "structured", "nul", "long"],
 )
 def test_complete_content_is_preserved(utf8_decoder, text, finish_reason):
     """完整文本及结构标记、零字节和超过 16 KB 的内容必须逐字保留。"""
@@ -56,7 +57,8 @@ _PARTIAL_CHARACTERS = [
 
 
 @pytest.mark.parametrize("partial", _PARTIAL_CHARACTERS)
-@pytest.mark.parametrize("prefix", ["", "<|box_start|>中文", "A\0B", "中" * 6000])
+@pytest.mark.parametrize("prefix", ["", "<|box_start|>中文", "A\0B", "中" * 6000],
+                         ids=["empty", "structured", "nul", "long"])
 def test_length_limit_discards_only_incomplete_tail(utf8_decoder, partial, prefix):
     """长度停止只舍弃二、三、四字节字符的未完成尾部，不能修改完整前缀。"""
     content = prefix.encode("utf-8") + partial

@@ -69,6 +69,10 @@ std::string string_argument(PyObject * object) {
         char * bytes = nullptr;
         if (PyBytes_AsStringAndSize(object, &bytes, &size) < 0) throw PythonError{};
         data = bytes;
+    } else if (PyByteArray_Check(object)) {
+        data = PyByteArray_AsString(object);
+        if (!data) throw PythonError{};
+        size = PyByteArray_Size(object);
     } else {
         PyErr_SetString(PyExc_TypeError, "expected str or bytes");
         throw PythonError{};
