@@ -67,7 +67,7 @@
 +            // 先查询架构再创建 queue/context；未覆盖 GPU 不触发 oneDNN 或设备内核初始化。
 +            auto devices = sycl::device::get_devices(sycl::info::device_type::all);
 +            std::vector<dpct_aot::candidate> candidates;
-+            for (const auto & device : devices) {
++            for (auto & device : devices) {
 +                dpct_aot::candidate candidate{false, false, false, false};
 +                try {
 +                    candidate.gpu = device.is_gpu();

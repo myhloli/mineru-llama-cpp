@@ -88,6 +88,8 @@ def test_actual_native_images_and_nested_container():
 @pytest.mark.parametrize("data,diagnostic", [
     (native_elf(ir=True), "SPIR-V"),
     (native_elf(nested=native_elf(), ir=True), "SPIR-V"),
+    (native_elf() + struct.pack("<7I", 0x07230203, 0x00010600, 0, 32, 0, (2 << 16) | 17, 6), "SPIR-V"),
+    (native_elf(ir=True).replace(b".ze_info", b".xx_info") + native_elf(), "SPIR-V"),
     (native_elf(ip=(20, 1, 0)), "ARL-H"),
     (native_elf(native=False), "machine code"),
     (native_elf()[:-20], "No embedded"), (b"CMake: arl-h -exclude_ir", "No embedded"),

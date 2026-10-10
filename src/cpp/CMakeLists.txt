@@ -176,6 +176,7 @@ if (DEFINED ENV{MINERU_EXTRA_BACKENDS_DIR} AND NOT "$ENV{MINERU_EXTRA_BACKENDS_D
             if (NOT profile_result EQUAL 0)
                 message(FATAL_ERROR "Windows SYCL AOT/FP16 validation failed: ${profile_error}")
             endif()
+            target_compile_definitions(_mineru_llama_cpp PRIVATE MINERU_WINDOWS_SYCL_ARL_H_AOT_ONLY=1)
         endif()
         string(JSON runtime_count LENGTH "${manifest_json}" bundled_runtime)
         if (WIN32 AND backend_name STREQUAL "sycl" AND runtime_count LESS 1)

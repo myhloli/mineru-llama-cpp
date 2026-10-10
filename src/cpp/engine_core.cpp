@@ -238,7 +238,7 @@ void select_engine_backend(common_params & params, int requested_layers) {
     try {
         selected = mineru_llama_cpp::select_backend_devices(candidates, requested, requested_layers == 0);
     } catch (const std::runtime_error & error) {
-#if defined(_WIN32) && (defined(_M_X64) || defined(__x86_64__))
+#if defined(MINERU_WINDOWS_SYCL_ARL_H_AOT_ONLY)
         if (requested == "sycl")
             throw std::runtime_error(std::string(error.what()) +
                 "; this Windows SYCL candidate supports Arrow Lake-H (arl-h, Arc 130T/140T) only");

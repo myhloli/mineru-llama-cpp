@@ -55,6 +55,20 @@ def intel_product_configs(data: bytes) -> list[int]:
 
 def audit(data: bytes) -> dict:
     """检查每个原生映像的 ARL-H IP、机器码和 IR 节，不依赖 GPU 或驱动。"""
+    cursor = 0
+    while True:
+        offset = data.find(b"\x03\x02\x23\x07", cursor)
+        if offset < 0:
+            break
+        cursor = offset + 4
+        if offset + 24 > len(data):
+            continue
+        _, version, _, bound, schema, first = struct.unpack_from("<6I", data, offset)
+        # 同时识别独立 SPIR-V 映像，不能让 ELF 之外的通用 JIT 备用映像漏过检查。
+        if (version & 0xff0000ff == 0 and 0x00010000 <= version <= 0x00010600
+                and 0 < bound < (1 << 30) and schema == 0
+                and first & 65535 in (10, 17) and 2 <= first >> 16 <= 64):
+            raise ValueError(f"MODULE retains standalone fallback SPIR-V at {offset}")
     records = []
     cursor = 0
     while True:
@@ -67,8 +81,6 @@ def audit(data: bytes) -> dict:
         except (ValueError, struct.error, UnicodeDecodeError):
             continue
         names = {name for name, _, _ in sections}
-        if not (".ze_info" in names or ".device_binary" in names):
-            continue
         if any(content and (name.startswith((".spv", ".spirv")) or kind == 0xff000009)
                for name, kind, content in sections):
             raise ValueError(f"Embedded GPU image at {offset} retains fallback SPIR-V")

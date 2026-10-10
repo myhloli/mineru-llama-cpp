@@ -286,6 +286,8 @@ def main() -> None:
         "inputs": {name: {"path": str(getattr(args, name)), "sha256": sha256(getattr(args, name))}
                    for name in ("model", "mmproj", "pdf", "image")},
         "rounds": [], "quality_acceptance": "pending manual per-page review; no exact-text equality requirement"}
+    evidence["quality_rejections"] = []
+    write_json(args.output / "summary.json", evidence)
     variants = [("old-sycl", args.baseline_python, "sycl"), ("aot-f16-sycl", args.candidate_python, "sycl"),
                 ("vulkan", args.candidate_python, "vulkan")]
     common = ["--model", str(args.model), "--mmproj", str(args.mmproj), "--pdf", str(args.pdf),
@@ -316,13 +318,21 @@ def main() -> None:
         # 不把 JSON 字节不相等视为失败；逐页列出结构和内容差异供人工裁决。
         for variant in ("aot-f16-sycl", "vulkan"):
             base = args.output / f"round-{round_index + 1}"
-            for mode, filename in (("engine", "first-page.json"), ("mineru", "middle.json")):
+            differences = {"engine": {}, "mineru": {}}
+            comparisons = [("engine", "first-page.json"), ("mineru", "middle.json")] + [
+                ("engine", f"warm-page-{index + 1}.json") for index in range(args.warm_tasks)]
+            for mode, filename in comparisons:
                 before = json.loads((base / "old-sycl" / mode / filename).read_text(encoding="utf-8"))
                 after = json.loads((base / variant / mode / filename).read_text(encoding="utf-8"))
                 # PDF 文档比较保留页面树，避免时间戳/生产者元数据形成无关差异。
                 if mode == "mineru":
                     before, after = before["pages"], after["pages"]
-                write_json(base / variant / mode / "quality-differences.json", output_differences(before, after))
+                differences[mode][filename] = output_differences(before, after)
+                if differences[mode][filename]["reject"]:
+                    evidence["quality_rejections"].append({"round": round_index + 1, "variant": variant,
+                        "mode": mode, "file": filename, "reasons": differences[mode][filename]["reject"]})
+            for mode, difference in differences.items():
+                write_json(base / variant / mode / "quality-differences.json", difference)
         evidence["rounds"].append({"order": [item[0] for item in order], "records": records})
         write_json(args.output / "summary.json", evidence)
     medians = {}
@@ -334,8 +344,12 @@ def main() -> None:
         medians[variant]["full_mineru_seconds"] = statistics.median(entry["mineru"]["full_mineru_seconds"] for entry in records)
         medians[variant]["full_mineru_peak_rss_bytes"] = statistics.median(entry["mineru"]["peak_rss_bytes"] for entry in records)
     evidence["medians"] = medians
+    if evidence["quality_rejections"]:
+        evidence["quality_acceptance"] = "rejected by structural/content checks; inspect per-page differences"
     write_json(args.output / "summary.json", evidence)
     print(json.dumps(medians, indent=2))
+    if evidence["quality_rejections"]:
+        raise SystemExit(2)
 
 
 if __name__ == "__main__":
