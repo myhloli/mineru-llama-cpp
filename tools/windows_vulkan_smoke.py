@@ -51,7 +51,8 @@ def probe(package: Path, missing_loader: bool) -> None:
         return
     # CI 的 loader 独立于 SDK 工具链且不在 wheel 内；用户运行时由显卡驱动提供。
     sdk = os.environ.get("VULKAN_SDK")
-    directory_handle = os.add_dll_directory(str(Path(sdk) / "TestRuntime")) if sdk else None
+    runtime = Path(sdk) / "TestRuntime" if sdk else None
+    directory_handle = os.add_dll_directory(str(runtime)) if runtime and runtime.is_dir() else None
     module_handle = ctypes.WinDLL(str(module), winmode=0x100 | 0x1000)
     registry = library.ggml_backend_load(str(module).encode())
     devices = []
