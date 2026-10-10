@@ -20,6 +20,61 @@ def load_workflow(filename):
     return yaml.safe_load((WORKFLOWS / filename).read_text(encoding="utf-8"))
 
 
+def run_runtime_id_check(run_id):
+    """用真实 Node 执行诊断参数校验，只收集输出及报错，不下载产物或访问 GitHub。"""
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("GitHub Actions 脚本验证需要 Node.js")
+    step = load_workflow("build-wheels.yml")["jobs"]["diagnose_windows_runtime"]["steps"][0]
+    payload = {"script": step["with"]["script"], "run_id": run_id}
+    runner = r"""
+        const input = JSON.parse(require('fs').readFileSync(0, 'utf8'));
+        if (input.run_id === null) delete process.env.RUNTIME_RUN_ID;
+        else process.env.RUNTIME_RUN_ID = input.run_id;
+        const outputs = {};
+        // 模拟 Actions 输出收集方法，验证实际下载参数必须来自成功校验。
+        const core = { setOutput: (name, value) => { outputs[name] = value; } };
+        // 执行真实生产脚本，将校验输出或错误信息交回 Python。
+        const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+        new AsyncFunction('core', input.script)(core)
+            .then(() => process.stdout.write(JSON.stringify(outputs)))
+            .catch(error => { console.error(error.message); process.exitCode = 1; });
+    """
+    return subprocess.run([node, "-e", runner], input=json.dumps(payload), capture_output=True, text=True)
+
+
+def test_runtime_diagnostic_validates_id_before_downloading():
+    """运行库诊断先校验 ID，下载只使用已校验值，其他构建模式不必填写诊断参数。"""
+    workflow = load_workflow("build-wheels.yml")
+    job = workflow["jobs"]["diagnose_windows_runtime"]
+    assert job["if"] == "github.event_name == 'workflow_dispatch' && inputs.platform == 'windows-runtime'"
+    validator = job["steps"][0]
+    assert validator["id"] == "runtime_source"
+    assert validator["env"]["RUNTIME_RUN_ID"] == "${{ inputs.runtime_run_id }}"
+    download = next(step for step in job["steps"]
+                    if step.get("uses", "").startswith("actions/download-artifact@"))
+    assert download["with"]["run-id"] == "${{ steps.runtime_source.outputs.run_id }}"
+    triggers = workflow.get("on", workflow.get(True))
+    assert triggers["workflow_dispatch"]["inputs"]["runtime_run_id"]["required"] is False
+
+
+@pytest.mark.parametrize("run_id", ["1", "38059937369", "9007199254740991"])
+def test_runtime_diagnostic_accepts_positive_run_id(run_id):
+    """正整数构建 ID 能通过诊断校验，并作为确定的下载来源输出。"""
+    result = run_runtime_id_check(run_id)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {"run_id": run_id}
+
+
+@pytest.mark.parametrize("run_id", [None, "", " ", "0", "-1", "1.5", "1e3", "abc",
+                                    "123; echo injected", "9007199254740992"])
+def test_runtime_diagnostic_rejects_missing_or_invalid_run_id(run_id):
+    """缺失值和非法 ID 在诊断开始时明确报错，不会交给下载动作回退到当前运行。"""
+    result = run_runtime_id_check(run_id)
+    assert result.returncode != 0
+    assert "runtime_run_id is required for windows-runtime and must be a positive integer" in result.stderr
+
+
 @pytest.mark.parametrize("pattern", [
     "*cp310-abi3-*",
     "*win_amd64.whl",

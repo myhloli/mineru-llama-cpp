@@ -12,7 +12,7 @@ on:
         default: all
         options: [all, linux, windows, windows-arm64, macos, windows-runtime]
       runtime_run_id:
-        description: 'Existing build run for the Windows runtime diagnostic only'
+        description: 'Existing build run ID (required for windows-runtime only)'
         required: false
         type: string
 
@@ -21,6 +21,20 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.platform == 'windows-runtime'
     runs-on: windows-2022
     steps:
+      - name: Validate runtime diagnostic run ID
+        id: runtime_source
+        env:
+          RUNTIME_RUN_ID: ${{ inputs.runtime_run_id }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // 仅运行库诊断要求已有构建 ID；在下载前拒绝空值及非法输入。
+            const rawId = process.env.RUNTIME_RUN_ID;
+            const runId = Number(rawId);
+            if (!/^[1-9][0-9]*$/.test(rawId) || !Number.isSafeInteger(runId)) {
+              throw new Error('runtime_run_id is required for windows-runtime and must be a positive integer');
+            }
+            core.setOutput('run_id', String(runId));
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
@@ -29,7 +43,7 @@ jobs:
         with:
           name: wheels-windows-amd64
           path: runtime-check
-          run-id: ${{ inputs.runtime_run_id }}
+          run-id: ${{ steps.runtime_source.outputs.run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - run: pip install pefile
       - name: Load each bundled DLL without Vulkan SDK
