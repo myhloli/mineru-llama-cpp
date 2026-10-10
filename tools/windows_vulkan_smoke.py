@@ -11,28 +11,29 @@ from windows_pe import pe_machine
 
 
 def load_registry(package: Path):
-    """加载已安装 wheel 的真实注册表，只初始化 CPU，供可选 Vulkan 加载检查使用。"""
+    """分别加载注册表与设备查询 DLL，只初始化 CPU，供可选 Vulkan 加载检查使用。"""
     library = ctypes.CDLL(str(package / "bin/ggml.dll"))
+    base = ctypes.CDLL(str(package / "bin/ggml-base.dll"))
     library.ggml_backend_load.argtypes = [ctypes.c_char_p]
     library.ggml_backend_load.restype = ctypes.c_void_p
     library.ggml_backend_dev_by_type.argtypes = [ctypes.c_int]
     library.ggml_backend_dev_by_type.restype = ctypes.c_void_p
-    library.ggml_backend_reg_dev_count.argtypes = [ctypes.c_void_p]
-    library.ggml_backend_reg_dev_count.restype = ctypes.c_size_t
-    library.ggml_backend_reg_dev_get.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
-    library.ggml_backend_reg_dev_get.restype = ctypes.c_void_p
-    library.ggml_backend_dev_name.argtypes = [ctypes.c_void_p]
-    library.ggml_backend_dev_name.restype = ctypes.c_char_p
-    library.ggml_backend_dev_description.argtypes = [ctypes.c_void_p]
-    library.ggml_backend_dev_description.restype = ctypes.c_char_p
+    base.ggml_backend_reg_dev_count.argtypes = [ctypes.c_void_p]
+    base.ggml_backend_reg_dev_count.restype = ctypes.c_size_t
+    base.ggml_backend_reg_dev_get.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
+    base.ggml_backend_reg_dev_get.restype = ctypes.c_void_p
+    base.ggml_backend_dev_name.argtypes = [ctypes.c_void_p]
+    base.ggml_backend_dev_name.restype = ctypes.c_char_p
+    base.ggml_backend_dev_description.argtypes = [ctypes.c_void_p]
+    base.ggml_backend_dev_description.restype = ctypes.c_char_p
     assert library.ggml_backend_load(str(package / "bin/ggml-cpu.dll").encode())
     assert library.ggml_backend_dev_by_type(0), "CPU unavailable before Vulkan load"
-    return library
+    return library, base
 
 
 def probe(package: Path, missing_loader: bool) -> None:
     """分别在独立进程中验证原始 MODULE 和仅供故障注入的临时 MODULE 副本。"""
-    library = load_registry(package)
+    library, base = load_registry(package)
     module = package / "bin/ggml-vulkan.dll"
     if missing_loader:
         # 仅修改临时副本的导入 DLL 名称，保证即使系统安装了 loader 也确实触发缺失依赖。
@@ -57,10 +58,10 @@ def probe(package: Path, missing_loader: bool) -> None:
     registry = library.ggml_backend_load(str(module).encode())
     devices = []
     if registry:
-        for index in range(library.ggml_backend_reg_dev_count(registry)):
-            device = library.ggml_backend_reg_dev_get(registry, index)
-            devices.append({"name": library.ggml_backend_dev_name(device).decode(),
-                            "description": library.ggml_backend_dev_description(device).decode()})
+        for index in range(base.ggml_backend_reg_dev_count(registry)):
+            device = base.ggml_backend_reg_dev_get(registry, index)
+            devices.append({"name": base.ggml_backend_dev_name(device).decode(),
+                            "description": base.ggml_backend_dev_description(device).decode()})
     assert library.ggml_backend_dev_by_type(0), "Vulkan initialization broke CPU availability"
     print(json.dumps({"python": sys.version.split()[0], "vulkan_module_load": "passed",
                       "devices": devices, "gpu_inference": "pending hardware/model validation"}), flush=True)
