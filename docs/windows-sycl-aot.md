@@ -9,6 +9,14 @@ XMX subgroup 为 8，OCLOC 并行链接任务为 1。构建清单记录实际编
 审计必须找到原生机器码、ARL-H `12.74` 兼容信息，且容器/原生映像不携带备用 SPIR-V。
 仅声明 CMake 参数不足以通过检查。
 
+oneAPI 2026.1.1 的实测产物中，一个 ESIMD 原生 ELF 仍带有 90,876 字节 `.spv`，
+即使编译及链接均指定 `-exclude_ir`。打包工具清空该节并把节长度设为零，
+保持 PE 长度、设备映像地址、其他节以及原生指令不变，再对最终 DLL 进行严格审计。
+没有 ARL-H 原生指令的映像不能使用此清理流程。清单记录清理前后摘要和原生指令摘要。
+专项 CI 可通过 `reuse_sycl_run_id=38045181417` 复用已完成链接的固定中间产物；
+恢复工具核验原 DLL、基线运行库 wheel、llama.cpp 提交和全部补丁摘要。
+主体核心及 Python 扩展仍重新构建，普通构建也执行相同 IR 清理和最终审计。
+
 SYCL 架构查询仅允许 `intel_gpu_arl_h`，适用 Arrow Lake-H 的 Arc 130T/140T。
 未覆盖或无法识别的设备在创建 queue/context 和 oneDNN 探测前排除，
 自动模式回退到 Vulkan，Vulkan 不可用时使用 CPU。显式 `sycl` 会报告 ARL-H 限制；

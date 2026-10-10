@@ -10,6 +10,7 @@ from test_backend_policy import backend_selector
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 from audit_sycl_aot import audit
+from strip_sycl_ir import strip
 from sycl_profile import WINDOWS_SYCL_PROFILE, WINDOWS_OCLOC_VERSION, WINDOWS_OCLOC_RELATIVE_PATH, fingerprint, validate_module
 
 ARL = (True, True, True, True)
@@ -84,6 +85,39 @@ def test_actual_native_images_and_nested_container():
     assert report["image_count"] == 2 and report["ir_excluded"]
     assert report["images"][0]["ip_versions"] == ["12.74.4"]
     assert validate_module(manifest_for(data), data) == report
+
+
+def test_esimd_ir_cleanup_preserves_native_code_and_offsets():
+    """清理 OCLOC 遗留 IR 后保持原生指令、兼容信息及宿主映像长度和偏移。"""
+    from audit_sycl_aot import elf_sections
+    original = b"host-PE" + native_elf(ir=True) + native_elf()
+    cleaned, records = strip(original)
+    assert len(cleaned) == len(original) and len(records) == 1
+    before = elf_sections(original, 7)[0]
+    after = elf_sections(cleaned, 7)[0]
+    assert [(n, t, c) for n, t, c in before if n != ".spv"] == [(n, t, c) for n, t, c in after if n != ".spv"]
+    assert next(c for n, _, c in after if n == ".spv") == b""
+    assert b"fallback-ir" not in cleaned and audit(cleaned)["image_count"] == 2
+    assert strip(cleaned) == (cleaned, [])
+
+
+@pytest.mark.parametrize("data", [native_elf(ir=True, native=False), native_elf(ir=True, ip=(12, 70, 0)),
+                                 native_elf(ir=True).replace(b".ze_info", b".xx_info")])
+def test_ir_cleanup_cannot_create_native_support(data):
+    """没有 ARL-H 原生代码的映像必须拒绝，不能删除 IR 后伪装成受支持设备。"""
+    with pytest.raises(ValueError, match="without native ARL-H"):
+        strip(data)
+
+
+def test_native_recovery_rejects_unknown_artifacts(tmp_path):
+    """固定来源恢复入口在写入暂存目录前拒绝不匹配的模块和运行库。"""
+    from recover_windows_sycl import recover
+    module, wheel = tmp_path / "module.dll", tmp_path / "runtime.whl"
+    module.write_bytes(native_elf(ir=True))
+    wheel.write_bytes(b"unknown-wheel")
+    with pytest.raises(ValueError, match="pinned CI provenance"):
+        recover(module, wheel, tmp_path / "stage", "38045181417")
+    assert not (tmp_path / "stage").exists()
 
 
 @pytest.mark.parametrize("data,diagnostic", [

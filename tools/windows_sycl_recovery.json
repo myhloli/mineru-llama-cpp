@@ -1,0 +1,23 @@
+{
+  "run_id": "38045181417",
+  "source_head": "931984507b7d00b7f296f16a121b1a62e484284b",
+  "module_original_sha256": "b488b8362fee5dca4df5c7270b2353324708733f63a2c9fa8f29c3ea278a0841",
+  "llama_cpp_commit": "86a283532072722c5f3363d37d59a874d09fa99b",
+  "patches": {
+    "0001-fix-cli-task-double-tokenize.patch": "3ea516dd3a323f87c15bbe65e4cf24b1d339bdae6a5a60e33ff8ace31c911a30",
+    "0002-fix-windows-backend-dll-search.patch": "168fbe1b3bf39e954ea05cdb7a2580ff1bcb668d0078345ff5c50d133bf7fb1c",
+    "0003-guard-optional-backend-init.patch": "e254314f90de8587ff4ef41005758c0ad872bbb37ea77bfee65801b8ade5c382",
+    "0004-fix-sycl-device-eligibility.patch": "97967b1b157924eab3e4bd955c9ab20b1af951facf4dacc5bc4869f17bccf7fb",
+    "0005-fix-sycl-sdk-include-path.patch": "0faa2d885a50945dc9a57266cf7b71a2bce4330ef02c56b60db9d074050320f8",
+    "0006-preserve-sycl-initialization-errors.patch": "f285bf6f9add1e8208e3e3ab96313c47bc73126be74490060eedc91247a85462",
+    "0007-windows-arl-h-aot-profile.patch": "16bbd6173dad1ffc5235cec20e7c35f632ecb69ba2d57a9a492f99df517ed705"
+  },
+  "toolchain": "Intel(R) oneAPI DPC++/C++ Compiler for applications running on Intel(R) 64, Version 2026.1.1 Build 20260724\nCopyright (C) 1985-2026 Intel Corporation. All rights reserved.\n\nIntel(R) oneAPI DPC++/C++ Compiler 2026.1.1 (2026.1.1.20260724)\nTarget: x86_64-pc-windows-msvc\nThread model: posix\nInstalledDir: C:\\Program Files (x86)\\Intel\\oneAPI\\compiler\\2026.1\\bin\\compiler\nConfiguration file: C:\\Program Files (x86)\\Intel\\oneAPI\\compiler\\2026.1\\bin\\compiler\\..\\icx.cfg\n",
+  "ocloc": {
+    "version": "32.0.101.8974",
+    "sha256": "b415746df207f1893c5986a48508ea882c11d3d0b818569617164ecebf5c58d8",
+    "relative_path": "ocloc/2026.1/bin/ocloc.exe"
+  },
+  "runtime_run_id": "38021630646",
+  "runtime_wheel_sha256": "92a4bd0f996bfc1f07a06ddd0ecd01b18272dbf95771031261ff7f2a2333d62e"
+}

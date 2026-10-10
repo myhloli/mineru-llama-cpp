@@ -15,6 +15,10 @@ on:
         description: 'Existing build run for the Windows runtime diagnostic only'
         required: false
         type: string
+      reuse_sycl_run_id:
+        description: 'Optional pinned native AOT intermediate run (see windows_sycl_recovery.json)'
+        required: false
+        type: string
 
 jobs:
   diagnose_windows_runtime:
@@ -212,8 +216,27 @@ jobs:
           path: |
             C:/VulkanSDK
             C:/mineru-gpu-backends
-          key: gpu-windows-amd64-sycl-vulkan-${{ hashFiles('llama-cpp-revision.txt', 'third_party/llama.cpp/ggml/**', 'patches/llama.cpp/*.patch', 'tools/setup_windows_gpu.py', 'tools/build_gpu_backends.py', 'tools/sycl_profile.py', 'tools/audit_sycl_aot.py', 'tools/download_sdk.py', 'tools/build_level_zero.py') }}
+          key: gpu-windows-amd64-sycl-vulkan-${{ hashFiles('llama-cpp-revision.txt', 'third_party/llama.cpp/ggml/**', 'patches/llama.cpp/*.patch', 'tools/setup_windows_gpu.py', 'tools/build_gpu_backends.py', 'tools/sycl_profile.py', 'tools/audit_sycl_aot.py', 'tools/strip_sycl_ir.py', 'tools/download_sdk.py', 'tools/build_level_zero.py') }}
           restore-keys: gpu-windows-amd64-sycl-vulkan-
+      - uses: actions/download-artifact@v4
+        if: inputs.reuse_sycl_run_id != '' && github.event_name == 'workflow_dispatch'
+        with:
+          name: native-sycl-aot-failure
+          path: native-recovery
+          run-id: ${{ inputs.reuse_sycl_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/download-artifact@v4
+        if: inputs.reuse_sycl_run_id != '' && github.event_name == 'workflow_dispatch'
+        with:
+          name: wheels-windows-amd64
+          path: runtime-recovery
+          run-id: '38021630646'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Recover verified native AOT intermediate and unchanged runtimes
+        if: inputs.reuse_sycl_run_id != '' && github.event_name == 'workflow_dispatch'
+        run: |
+          $wheel = (Get-ChildItem runtime-recovery/*.whl).FullName
+          python tools/recover_windows_sycl.py --module native-recovery/ggml-sycl.dll --runtime-wheel "$wheel" --stage C:/mineru-gpu-backends --run-id "${{ inputs.reuse_sycl_run_id }}"
       - name: Install cibuildwheel
         run: pip install cibuildwheel==4.3.0
       - name: Build wheels (Windows AMD64, CPU+Vulkan+SYCL)

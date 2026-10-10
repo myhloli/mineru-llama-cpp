@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 from audit_sycl_aot import audit
+from strip_sycl_ir import strip
 from sycl_profile import WINDOWS_SYCL_PROFILE, WINDOWS_OCLOC_VERSION, WINDOWS_OCLOC_RELATIVE_PATH, fingerprint, validate_module
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -199,6 +200,12 @@ def build(backend: str, stage: Path, work: Path) -> None:
     if len(files) != 1:
         raise RuntimeError(f"Expected one {target} MODULE, got {files}")
     shutil.copy2(files[0], stage / files[0].name)
+    ir_stripping = []
+    if windows_sycl:
+        # OCLOC 的 ESIMD 分支可能忽略 exclude_ir；最终文件必须再清理并实际审计。
+        module = stage / files[0].name
+        cleaned, ir_stripping = strip(module.read_bytes())
+        module.write_bytes(cleaned)
     if os.name != "nt":
         # 擦除工具链写入的绝对目录，保证缺少外部运行库时能真实回退。
         subprocess.run(["patchelf", "--set-rpath", "$ORIGIN:$ORIGIN/../lib", str(stage / files[0].name)], check=True)
@@ -210,6 +217,7 @@ def build(backend: str, stage: Path, work: Path) -> None:
                 "module": files[0].name, "bundled_runtime": runtime, "toolchain": toolchain}
     if windows_sycl:
         manifest.update(configuration=WINDOWS_SYCL_PROFILE, ocloc=ocloc,
+                        ir_stripping=ir_stripping,
                         fingerprint=fingerprint(WINDOWS_SYCL_PROFILE, toolchain, ocloc),
                         aot_audit=audit((stage / files[0].name).read_bytes()))
         print(json.dumps({key: value for key, value in manifest["aot_audit"].items() if key != "images"}), flush=True)
