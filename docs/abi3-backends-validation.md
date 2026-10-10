@@ -2,7 +2,7 @@
 
 实现分支：`codex/abi3-gpu-wheels`。源码版本保留 0.1.2，未发布新版本。
 llama.cpp 保持 `86a283532072722c5f3363d37d59a874d09fa99b`；原有两个补丁保留，
-新增可选后端初始化异常隔离与 SYCL 设备适用性补丁。
+新增可选后端初始化异常隔离、SYCL 设备适用性、SDK 头文件路径及初始化错误传播补丁。
 
 ## 最新交付范围
 
@@ -35,33 +35,60 @@ CMake 强制关闭 CUDA，发布审计拒绝遗留 CUDA MODULE、manifest 和运
 | 检查 | 状态 |
 |---|---|
 | pybind11 基线原有模型回归及当时的策略测试 | 53 passed |
-| Limited API 完整模型回归 | Python 3.10、3.11、3.14 各 118 passed；3.12/3.13 完整回归运行中 |
+| Limited API 完整模型回归 | 迁移版 Python 3.10–3.14 各 118 passed；无 CUDA CI 候选本地完整 119 passed（282.48 s）；设备数组终止项修正后本地 Python 3.14 完整 119 passed（314.88 s） |
 | 同一 wheel 的 Python 3.10–3.14 安装与 ABI | 安装通过；严格审计计算出稳定 ABI 下限 3.10，无非稳定符号 |
-| UTF-8、策略及绑定参数边界 | Python 3.10–3.13 各 78 passed；移除 CUDA 后重新运行 |
-| 强制 CPU、零层卸载、显式不可用后端 | 真实 Q8_0 模型生成通过；移除 CUDA 后使用 SYCL 配置重新验证 |
+| UTF-8、策略及绑定参数边界 | 无 CUDA 同一 wheel，Python 3.10–3.14 各 79 passed，含驱动初始化失败后的 CPU 存活检查 |
+| 强制 CPU、零层卸载、显式不可用后端 | 真实 Q8_0 模型生成通过；SYCL 不可用时显式报错，零层卸载及 CPU 覆盖有效，CUDA 参数明确拒绝 |
 | 同机 MinerU 输出与性能 | 三轮交替独立进程，文本及完整页面提取逐轮一致，详见下表 |
+| macOS Intel CPU 产物 | CI wheel 在 M4 Rosetta / x86_64 Python 3.14 下加载 Q8_0 模型和投影，并完成 32 token 生成；不代表物理 Intel GPU 或性能证据 |
 | sdist 无子模块 Git 元数据配置 | 通过，提交常量正确，未误读外层仓库 |
 | MODULE 合并保护 | 拒绝错误提交、不同补丁、公共核心库冒充后端、非法运行库；额外核心库未合入 |
-| 六平台 CI | 旧含 CUDA 构建已取消；重新运行无 CUDA 构建 |
+| 六平台 CI | [最终运行 38021630646](https://github.com/myhloli/mineru-llama-cpp/actions/runs/38021630646) 全部成功，恰好六个 cp310-abi3 wheel，Python 3.10–3.14 每平台各 79 passed；严格 ABI 汇总及 Xcode 16.4 检查通过 |
 
 最后一轮绑定迁移对比使用相同 llama.cpp 提交、Q8_0 模型、Q8_0 mmproj 和真实页面图像。
 所有生成文本及完整 MinerU 提取结构逐轮一致，三个独立进程取中位数：
 
 | 项目 | pybind11 基线 | abi3 候选 | 候选 / 基线 |
 |---|---:|---:|---:|
-| 初始化 | 0.853 s | 0.876 s | 1.028 |
-| 文本生成 | 0.206 s | 0.206 s | 0.999 |
-| 页面布局生成 | 14.643 s | 14.667 s | 1.002 |
-| 完整页面提取 | 17.135 s | 17.155 s | 1.001 |
-| 峰值 RSS | 1,741,160,448 B | 1,739,456,512 B | 0.999 |
+| 初始化 | 0.854 s | 0.849 s | 0.994 |
+| 文本生成 | 0.206 s | 0.206 s | 1.002 |
+| 页面布局生成 | 14.609 s | 14.673 s | 1.004 |
+| 完整页面提取 | 17.091 s | 17.089 s | 1.000 |
+| 峰值 RSS | 1,740,881,920 B | 1,740,800,000 B | 1.000 |
 
 这是单机单页兼容性证据，不扩展为其他平台或 GPU 的性能声明。
+另将 CI run `38016309954` 的实际 macOS ARM64 wheel 安装到本地，完整模型回归 119 passed，
+并运行完整 MinerU 页面提取：文本和提取结构与上述 pybind11 基线一致，
+日志确认模型及视觉投影均由 Metal 卸载 25/25 层。
+记录为 `ci-ebc-model-suite.log` 和 `ci-ebc-extraction/result.json`。
+随后复核上游 `llama_model_params.devices` 的空指针终止契约，为 GPU 设备数组补充明确终止项，
+修正后本地同一 wheel 在 Python 3.10–3.14 各 79 passed、Python 3.14 完整 119 passed。
+Windows 无 SDK 复核进一步发现 Intel DLL 内部加载顺序要求。
+预加载内置运行库后，独立 Windows 复核成功；无 GPU 安装检查随后发现上游 SYCL 初始化通过 `exit(1)` 处理缺少设备；
+补丁将该初始化错误向可选后端加载器传播，允许回退至 Vulkan/CPU。
+最终完整重建为 CI run `38021630646`，全部构建与汇总审计通过。
+Windows 五个 Python 版本均记录附带 SYCL MODULE / DLL 加载成功，
+随后无设备初始化错误被隔离，CPU 保持可用；没有安装 oneAPI SDK 来掩盖依赖。
+预加载发生在模型创建前，失败仍允许 CPU 导入；不修改 PATH，不重跑模型请求。
 初轮还曾发现上游 Metal 注册名为 MTL，已映射并加入回归；错误回退 CPU 的那轮已作废。
 
 产物及日志位于忽略目录 `build/abi3-validation/`：`wheels/`、`candidate-tests-final.log`、
 `model-suite-3.*.log`、`contracts-3.*.log`、`abi3audit.json`、`macos-audit.json`、
-`benchmark-final/summary.json` 与 `staging-policy/`。
+`benchmark-no-cuda/summary.json` 与 `staging-policy/`。
+最终交付目录为 `final-delivery-wheels/`，最终 CI 记录为 `delivery-ci-status.json`、
+`delivery-windows-amd64.log` 和 `delivery-aggregate.log`；Linux ELF 报告为
+`delivery-linux-*-audits/*.post.json`，ABI / 分发汇总为 `delivery-abi3.json` / `delivery-manifest.json`。
 CUDA 移除前的日志仅作为迁移过程证据，最终分发矩阵以无 CUDA 重建结果为准。
+
+Linux 审计采用 manylinux_2_28 策略的 GLIBC 2.28、GLIBCXX 3.4.24、CXXABI 1.3.11 下限。
+`libllama` 的随机数实现原本引用 GLIBCXX 3.4.25，因此只对该库静态链接 libstdc++，
+并附带 GCC Runtime Library Exception 与 GPL 许可文件；Linux 两架构重建已通过。
+Linux SYCL 的 `libirng.so` 等编译器运行库与 oneMKL/oneDNN 一并保持外部依赖。
+Windows DLL 闭包检查排除系统 [ImageHlp](https://learn.microsoft.com/windows/win32/api/imagehlp/nf-imagehlp-imagegetdigeststream)
+和 [WinTrust](https://learn.microsoft.com/windows/win32/api/wintrust/nf-wintrust-winverifytrust)，
+额外在移除 oneAPI 搜索路径后直接加载附带 SYCL MODULE，检查 DLL 能否解析。
+Linux 两架构修复后的 ELF 分别为 11 / 12 个，实际最高依赖为 GLIBC 2.28、
+GLIBCXX 3.4.21、CXXABI 1.3.9；完整报告保存在 `delivery-linux-*-audits/*.post.json`。
 
 ## GPU 真机复核
 
