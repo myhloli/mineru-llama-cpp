@@ -11,7 +11,8 @@ SYCL 设备适用性、SDK 路径、初始化错误传播及 Windows AOT 四个�
 随后移除 SYCL：源码构建及运行时选择均不再支持，不再下载 oneAPI 或 Level Zero SDK，
 也不再暂存、合包或预加载 SYCL MODULE / 运行库。CMake 强制关闭 CUDA/SYCL，
 发布审计拒绝两者的遗留 MODULE、manifest 和运行库，Linux ELF 审计拒绝 oneAPI 动态依赖。
-本轮仅修改源码、CI 配置及文档并在本机验证，未运行六平台 CI，未发布。
+本地移除阶段完成源码、CI 配置、文档及本机验证；随后提交 `eff00ce` 的六平台完整 CI 全部成功。
+未发布新版本，旧 SYCL 候选继续保留为历史证据。
 
 | 平台 | 后端 |
 |---|---|
@@ -57,6 +58,41 @@ SYCL 设备适用性、SDK 路径、初始化错误传播及 Windows AOT 四个�
 真实页面对比仅用于本轮输出兼容性验收，不据此更新性能声明。
 首次回归中的两个新增构造用例误将异常类型预期为 RuntimeError；
 按既有绑定的 ValueError 映射修正后，以上最终完整回归全部通过。
+
+## 六平台 CI（移除 SYCL 后）
+
+[完整 CI 38059937369](https://github.com/myhloli/mineru-llama-cpp/actions/runs/38059937369)
+在提交 `eff00ce08f5a22795b840020a2e2c569f0784b35` 全部成功。
+使用 `platform=all` 全量重建；六个平台各一个 `cp310-abi3` wheel，
+每个平台在 Python 3.10–3.14 各通过 113 项安装、UTF-8、后端选择、绑定、
+可选后端异常隔离和分发规则回归。后四个版本均明确复用第一个 wheel，未重复编译。
+Xcode 16.4 兼容检查在 Python 3.12 额外通过 113 项回归及部署审计。
+
+六包汇总、严格 abi3 及 Windows PE 架构审计均通过；每包只有一个 Python 扩展，
+不含 CUDA/SYCL MODULE、manifest、oneAPI/Level Zero 运行库或许可。
+Windows AMD64 和 ARM64 各有 10 个原生产物，PE Machine 全部匹配目标架构。
+Windows ARM64 在五个 Python 版本检查原始 Vulkan MODULE 加载，
+并用临时 MODULE 副本注入缺失 loader 验证 CPU 回退，没有修改安装包。
+Linux 两架构各审计 11 个最终 ELF，最高依赖为 GLIBC 2.28、GLIBCXX 3.4.21、
+CXXABI 1.3.9；外部 GPU 运行库仅为 `libvulkan.so.1`。
+
+| 平台 | 压缩 wheel 大小 |
+|---|---:|
+| macosx_14_0_arm64 | 6.03 MiB |
+| macosx_14_0_x86_64 | 5.54 MiB |
+| manylinux_2_28_aarch64 | 19.78 MiB |
+| manylinux_2_28_x86_64 | 20.62 MiB |
+| win_amd64 | 18.56 MiB |
+| win_arm64 | 18.56 MiB |
+
+本轮 CI、产物和报告位于 `build/no-sycl-validation/ci-38059937369/`：
+`status.json`、`full.log`、`test-matrix.json`、`wheel-manifest.json`、
+`linux-elf-summary.json`、`abi3-audit.json` 和 `validation-summary.json`。
+完整六包及审计报告归档为 `mineru-llama-cpp-no-sycl-ci-candidates.zip`，
+每包 SHA256 和完整字节数见 `wheel-manifest.json`。
+发布任务按分支条件跳过，没有创建标签或上传 PyPI。
+无模型 CI 不作为 Windows/Linux GPU 实机推理或完整页面提取证据；
+本机真实页面兼容性结果仍以上述本地检查为准。
 
 ## 历史验证（移除 SYCL 前）
 
@@ -211,7 +247,7 @@ GLIBCXX 3.4.21、CXXABI 1.3.9；完整报告保存在 `delivery-linux-*-audits/*
 | Intel GPU / Vulkan（Windows/Linux） | 无对应本机硬件，待真机验证 |
 | NVIDIA / Vulkan | 无对应本机硬件，待真机验证 |
 | AMD RDNA3/4 / Vulkan | 无对应本机硬件，待真机验证 |
-| Windows ARM64 / Vulkan | 历史候选 MODULE 加载与无 loader 回退通过；本轮未重建，实际模型与页面提取待真机验证 |
+| Windows ARM64 / Vulkan | 本轮 CI 的 MODULE 加载与缺失 loader 的 CPU 回退通过；CI 无 GPU，实际模型与页面提取待真机验证 |
 
 无 GPU 的 CI 验证可分发性、ABI、安装与 CPU 后端，不作为 GPU 推理执行证据。
 安装对应候选 wheel，准备相同 Q8_0 模型、mmproj 和真实页面图像，按 README 配置运行库。
