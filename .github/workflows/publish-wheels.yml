@@ -58,7 +58,9 @@ jobs:
             });
             // 只接受同仓库构建工作流的成功产物，拒绝 PR 和其他工作流的产物。
             const repository = `${context.repo.owner}/${context.repo.repo}`;
-            if (run.path !== '.github/workflows/build-wheels.yml' ||
+            // API 路径可能带 @分支或 @标签；仅移除引用后缀，非字符串路径仍拒绝。
+            const workflowPath = typeof run.path === 'string' ? run.path.split('@', 1)[0] : '';
+            if (workflowPath !== '.github/workflows/build-wheels.yml' ||
                 run.repository?.full_name !== repository ||
                 run.head_repository?.full_name !== repository ||
                 run.status !== 'completed' || run.conclusion !== 'success' ||

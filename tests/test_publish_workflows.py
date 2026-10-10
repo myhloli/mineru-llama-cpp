@@ -208,9 +208,11 @@ def run_source_check(source_run, event_name="workflow_dispatch", run_id="123", t
     ("workflow_dispatch", "push", "main"),
     ("workflow_dispatch", "workflow_dispatch", "candidate"),
 ])
-def test_source_run_accepts_successful_builds(source_run, event_name, source_event, branch):
-    """自动发布接受成功标签构建，手动发布可复用成功的普通或手动构建。"""
+@pytest.mark.parametrize("path_suffix", ["", "@main", "@v0.2.0"])
+def test_source_run_accepts_successful_builds(source_run, event_name, source_event, branch, path_suffix):
+    """自动及手动入口兼容裸路径与分支、标签后缀，同时只接受成功的同仓库构建。"""
     source_run.update(event=source_event, head_branch=branch)
+    source_run["path"] += path_suffix
     result = run_source_check(source_run, event_name)
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout) == {"run_id": "123"}
@@ -221,6 +223,10 @@ def test_source_run_accepts_successful_builds(source_run, event_name, source_eve
     {"conclusion": "failure"},
     {"conclusion": "cancelled"},
     {"path": ".github/workflows/other.yml"},
+    {"path": ".github/workflows/other.yml@main"},
+    {"path": ".github/workflows/build-wheels.yml.old@v0.2.0"},
+    {"path": None},
+    {"path": 123},
     {"repository": {"full_name": "myhloli/mineru-llama-cpp"}},
     {"head_repository": {"full_name": "myhloli/mineru-llama-cpp"}},
     {"event": "pull_request"},
