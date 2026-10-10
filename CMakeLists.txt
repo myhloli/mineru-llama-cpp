@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.15)
+cmake_minimum_required(VERSION 3.26)
 
 # macOS 发布和源码构建统一使用 14.0 下限，在编译器初始化之前设置目标。
 if (CMAKE_HOST_APPLE AND (NOT CMAKE_SYSTEM_NAME OR CMAKE_SYSTEM_NAME STREQUAL "Darwin"))
@@ -85,6 +85,10 @@ set(GGML_BACKEND_DL ON CACHE BOOL "" FORCE)
 # a future MinGW/Emscripten target or an externally-supplied
 # -DBUILD_SHARED_LIBS=OFF quietly breaking the DL build.
 set(BUILD_SHARED_LIBS ON CACHE BOOL "" FORCE)
+
+# 发布及源码构建均不支持 CUDA/SYCL，避免显式参数或旧缓存重新启用。
+set(GGML_CUDA OFF CACHE BOOL "CUDA backend is not supported" FORCE)
+set(GGML_SYCL OFF CACHE BOOL "SYCL backend is not supported" FORCE)
 
 # GGML_NATIVE (llama.cpp's default ON) is incompatible with GGML_BACKEND_DL:
 # on x86_64, ggml/src/ggml-cpu/CMakeLists.txt:374 raises a hard
@@ -247,6 +251,13 @@ foreach(patch_file ${LLAMA_CPP_PATCHES})
 endforeach()
 
 add_subdirectory(third_party/llama.cpp)
+
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # llama 的 random_device 依赖 GLIBCXX_3.4.25；静态链接其 C++ 运行库以满足 2.28 策略的 3.4.24 上限。
+    target_link_options(llama PRIVATE -static-libstdc++)
+    install(DIRECTORY "${CMAKE_SOURCE_DIR}/licenses/gcc-runtime/"
+        DESTINATION "mineru_llama_cpp/licenses/gcc-runtime")
+endif()
 
 # Bundle libgomp.so.1 into the Linux wheel. Done at top-level scope (after
 # add_subdirectory(third_party/llama.cpp)) so ggml's OpenMP state is visible.

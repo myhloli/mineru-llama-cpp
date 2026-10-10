@@ -1,10 +1,11 @@
-set(PYBIND11_FINDPYTHON ON)
-find_package(pybind11 CONFIG REQUIRED)
+find_package(Python 3.10 REQUIRED COMPONENTS Interpreter Development.SABIModule)
 
-pybind11_add_module(_mineru_llama_cpp
+Python_add_library(_mineru_llama_cpp MODULE USE_SABI 3.10 WITH_SOABI
     binding.cpp
     engine_core.cpp
 )
+set_target_properties(_mineru_llama_cpp PROPERTIES
+    CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
 
 # dladdr() (engine_core.cpp's load_packaged_backends()) is a glibc extension;
 # its declaration in <dlfcn.h> is hidden unless _GNU_SOURCE is defined --
@@ -43,9 +44,19 @@ target_link_libraries(_mineru_llama_cpp PRIVATE
 execute_process(COMMAND git rev-parse HEAD
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/third_party/llama.cpp"
     OUTPUT_VARIABLE MINERU_LLAMA_CPP_LLAMA_COMMIT OUTPUT_STRIP_TRAILING_WHITESPACE
-    RESULT_VARIABLE MINERU_LLAMA_CPP_REVISION_RESULT)
-if (NOT MINERU_LLAMA_CPP_REVISION_RESULT EQUAL 0)
-    message(FATAL_ERROR "Cannot determine llama.cpp build revision")
+    RESULT_VARIABLE MINERU_LLAMA_CPP_REVISION_RESULT ERROR_QUIET)
+execute_process(COMMAND git rev-parse --show-toplevel
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/third_party/llama.cpp"
+    OUTPUT_VARIABLE MINERU_LLAMA_CPP_GIT_ROOT OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+file(READ "${CMAKE_SOURCE_DIR}/llama-cpp-revision.txt" MINERU_LLAMA_CPP_EXPECTED_COMMIT)
+string(STRIP "${MINERU_LLAMA_CPP_EXPECTED_COMMIT}" MINERU_LLAMA_CPP_EXPECTED_COMMIT)
+file(REAL_PATH "${CMAKE_SOURCE_DIR}/third_party/llama.cpp" MINERU_LLAMA_CPP_SOURCE_ROOT)
+# sdist 没有子模块 Git 元数据；禁止误读解压目录外层仓库的提交。
+if (NOT MINERU_LLAMA_CPP_REVISION_RESULT EQUAL 0 OR
+    NOT MINERU_LLAMA_CPP_GIT_ROOT STREQUAL MINERU_LLAMA_CPP_SOURCE_ROOT)
+    set(MINERU_LLAMA_CPP_LLAMA_COMMIT "${MINERU_LLAMA_CPP_EXPECTED_COMMIT}")
+elseif (NOT MINERU_LLAMA_CPP_LLAMA_COMMIT STREQUAL MINERU_LLAMA_CPP_EXPECTED_COMMIT)
+    message(FATAL_ERROR "llama.cpp checkout differs from llama-cpp-revision.txt; update both together")
 endif()
 target_compile_definitions(_mineru_llama_cpp PRIVATE
     MINERU_LLAMA_CPP_LLAMA_COMMIT="${MINERU_LLAMA_CPP_LLAMA_COMMIT}")

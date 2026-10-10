@@ -1,24 +1,13 @@
-name: Publish wheels to PyPI (manual)
+name: Publish wheels to PyPI
 
-# Manual release helper: publish a filtered subset of wheels produced by an
-# existing build-wheels run, without re-tagging.
-#
-# Primary use case: appending wheels for a newly-supported Python version
-# (e.g. cp314) to an already-released version on PyPI. PyPI rejects re-uploads
-# of existing file names but accepts new file names under an existing version,
-# so "release 0.1.0, then add cp314 later" is a legitimate operation — it just
-# cannot go through the tag-triggered publish job in build-wheels.yml, because
-# that job uploads every artifact and would die on the 32 already-published
-# file names (v0.1.0 tag already exists and cannot be re-pointed).
-#
-# Security notes:
-# - workflow_dispatch can only be triggered by collaborators with write access,
-#   so PYPI_TOKEN is never exposed to untrusted input.
-# - The token itself lives only in repo secrets; it never appears in logs.
-# - The wheel_glob input only filters which local files get uploaded; it cannot
-#   alter the upload destination or credentials.
+# 从已完成的构建运行中选择 abi3 产物；上传前验证平台、ABI 及运行库边界。
+# 允许明确筛选部分平台，避免重传 PyPI 上已经存在的同名文件。
 
 on:
+  # 版本标签的完整构建通过后，由本工作流统一发布。
+  workflow_run:
+    workflows: [Build wheels]
+    types: [completed]
   workflow_dispatch:
     inputs:
       run_id:
@@ -28,31 +17,153 @@ on:
       wheel_glob:
         description: 'fnmatch pattern (against the file basename) selecting which wheels to upload'
         required: false
-        default: '*cp314-*'
+        default: '*cp310-abi3-*'
 
 permissions:
   contents: read
   actions: read   # download-artifact@v4 needs this to fetch artifacts cross-run
 
 jobs:
-  publish:
+  verify_build_wheels:
+    # 普通分支、失败构建和 fork 构建不会自动发布；手动入口仍可验证产物。
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.repository == 'opendatalab/mineru-llama-cpp' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository &&
+       startsWith(github.event.workflow_run.head_branch, 'v'))
     runs-on: ubuntu-latest
     steps:
+      - name: Verify source build run
+        id: source
+        env:
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id || inputs.run_id }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // 从环境变量读取 run ID，不把用户输入插入 JavaScript 源码。
+            const rawId = process.env.SOURCE_RUN_ID;
+            const runId = Number(rawId);
+            if (!/^[1-9][0-9]*$/.test(rawId) || !Number.isSafeInteger(runId)) {
+              throw new Error('Build run ID must be a positive integer');
+            }
+            const { data: run } = await github.rest.actions.getWorkflowRun({
+              ...context.repo, run_id: runId
+            });
+            // 只接受同仓库构建工作流的成功产物，拒绝 PR 和其他工作流的产物。
+            const repository = `${context.repo.owner}/${context.repo.repo}`;
+            // API 路径可能带 @分支或 @标签；仅移除引用后缀，非字符串路径仍拒绝。
+            const workflowPath = typeof run.path === 'string' ? run.path.split('@', 1)[0] : '';
+            if (workflowPath !== '.github/workflows/build-wheels.yml' ||
+                run.repository?.full_name !== repository ||
+                run.head_repository?.full_name !== repository ||
+                run.status !== 'completed' || run.conclusion !== 'success' ||
+                !['push', 'workflow_dispatch'].includes(run.event)) {
+              throw new Error('Source must be a successful build-wheels run in this repository');
+            }
+            // 自动入口只能处理触发事件对应的版本标签构建。
+            if (context.eventName === 'workflow_run' &&
+                (run.event !== 'push' || !run.head_branch?.startsWith('v') ||
+                 run.id !== context.payload.workflow_run.id)) {
+              throw new Error('Automatic publishing requires the triggering version-tag build');
+            }
+            // 仅接受完整提交 SHA，避免分支移动或不合法的 ref 改变构建校验代码。
+            if (typeof run.head_sha !== 'string' || !/^[0-9a-f]{40}$/i.test(run.head_sha)) {
+              throw new Error('Source build must have a full commit SHA');
+            }
+            core.setOutput('run_id', String(runId));
+            core.setOutput('head_sha', run.head_sha);
+      - name: Checkout build revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.source.outputs.head_sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # checkout 完成后再下载，避免源码清理删除产物。
       - uses: actions/download-artifact@v4
         with:
           pattern: wheels-*
           merge-multiple: true
           path: dist
-          run-id: ${{ inputs.run_id }}
+          run-id: ${{ steps.source.outputs.run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Keep only wheels matching the pattern
+        # 将输入作为数据传递，避免 GitHub 表达式生成可执行的 shell 代码。
+        env:
+          WHEEL_GLOB: ${{ inputs.wheel_glob }}
+          PUBLISH_MODE: ${{ github.event_name }}
         run: |
-          find dist -name '*.whl' ! -name "${{ inputs.wheel_glob }}" -delete
+          if [ "$PUBLISH_MODE" = "workflow_run" ]; then
+            WHEEL_GLOB='*cp310-abi3-*'
+          fi
+          find dist -name '*.whl' ! -name "$WHEEL_GLOB" -delete
           echo "Wheels selected for upload:"
           ls -la dist/
 
+      - name: Verify wheels against build policy
+        env:
+          PUBLISH_MODE: ${{ github.event_name }}
+        run: |
+          pip install packaging
+          if [ "$PUBLISH_MODE" = "workflow_dispatch" ]; then
+            python tools/verify_wheels.py dist --allow-subset
+          else
+            python tools/verify_wheels.py dist
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: build-verified-wheels
+          path: dist/*.whl
+          if-no-files-found: error
+
+  prepare_wheels:
+    needs: [verify_build_wheels]
+    runs-on: ubuntu-latest
+    steps:
+      # 发布测试使用本次发布工作流的固定提交，产物只在构建提交处校验一次。
+      - name: Checkout publishing workflow
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: build-verified-wheels
+          path: dist
+      - name: Verify publishing workflow and stable ABI
+        run: |
+          pip install abi3audit pytest PyYAML
+          python -m pytest tests/test_publish_workflows.py -q
+          abi3audit --strict dist/*.whl
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pypi-wheels
+          path: dist/*.whl
+          if-no-files-found: error
+
+  publish:
+    needs: [prepare_wheels]
+    # 所有发布均限制在上游仓库，fork 的手动入口仅准备和验证产物。
+    if: github.repository == 'opendatalab/mineru-llama-cpp'
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/mineru-llama-cpp
+    # 仅独立发布任务能够获取 OIDC 凭据，筛选及校验任务没有此权限。
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: pypi-wheels
+          path: dist
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          password: ${{ secrets.PYPI_TOKEN }}

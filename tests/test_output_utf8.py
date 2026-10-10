@@ -10,17 +10,19 @@ import pytest
 @pytest.fixture(scope="session")
 def utf8_decoder(tmp_path_factory):
     """在临时目录构建测试扩展，复用生产头文件并保留编译失败的诊断。"""
-    from pybind11.setup_helpers import Pybind11Extension, build_ext
-    from setuptools import Distribution
+    from setuptools import Distribution, Extension
+    from setuptools.command.build_ext import build_ext
 
     root = Path(__file__).resolve().parents[1]
     output = tmp_path_factory.mktemp("utf8_decoder")
-    extension = Pybind11Extension(
+    extension = Extension(
         "_utf8_decode_test",
         [str(root / "tests/native/utf8_decode_binding.cpp")],
         include_dirs=[str(root / "src/cpp")],
-        extra_compile_args=["/utf-8"] if sys.platform == "win32" else [],
-        cxx_std=11,
+        define_macros=[("Py_LIMITED_API", "0x030A0000")],
+        py_limited_api=True,
+        extra_compile_args=["/utf-8", "/std:c++17"] if sys.platform == "win32" else ["-std=c++17"],
+        language="c++",
     )
     command = build_ext(Distribution({"ext_modules": [extension]}))
     command.build_lib = str(output)
@@ -40,6 +42,7 @@ def utf8_decoder(tmp_path_factory):
 @pytest.mark.parametrize(
     "text",
     ["", "ASCII", "中文é😀", "<|box_start|>中文<|box_end|>", "A\0中文B", "中" * 6000],
+    ids=["empty", "ascii", "unicode", "structured", "nul", "long"],
 )
 def test_complete_content_is_preserved(utf8_decoder, text, finish_reason):
     """完整文本及结构标记、零字节和超过 16 KB 的内容必须逐字保留。"""
@@ -54,7 +57,8 @@ _PARTIAL_CHARACTERS = [
 
 
 @pytest.mark.parametrize("partial", _PARTIAL_CHARACTERS)
-@pytest.mark.parametrize("prefix", ["", "<|box_start|>中文", "A\0B", "中" * 6000])
+@pytest.mark.parametrize("prefix", ["", "<|box_start|>中文", "A\0B", "中" * 6000],
+                         ids=["empty", "structured", "nul", "long"])
 def test_length_limit_discards_only_incomplete_tail(utf8_decoder, partial, prefix):
     """长度停止只舍弃二、三、四字节字符的未完成尾部，不能修改完整前缀。"""
     content = prefix.encode("utf-8") + partial
