@@ -5,9 +5,7 @@ import gc
 import os
 
 from mineru_llama_cpp import Engine, SamplingParams
-
-MODEL = "/Users/jinzhenj/.mineru/models/MinerU2.5-Pro-2605-1.2B-Q8_0.gguf"
-MMPROJ = "/Users/jinzhenj/.mineru/models/mmproj-MinerU2.5-Pro-2605-1.2B-Q8_0.gguf"
+from conftest import MODEL, MMPROJ
 
 
 def _rss_mb() -> float:

@@ -1,6 +1,6 @@
 Fix: resolve Windows backend DLL dependencies from the backend's own directory
 
-Base commit: 9a3bf2b84923a85583b4ee8177b0cca13824bb03 (gguf-v0.19.0-1114-g9a3bf2b84)
+Base commit: 86a283532072722c5f3363d37d59a874d09fa99b
 
 Root cause: on Windows, dl_load_library() loads backend DLLs (ggml-cpu.dll,
 ggml-vulkan.dll) with a plain LoadLibraryW() given an absolute path. The
@@ -24,7 +24,7 @@ LOAD_LIBRARY_SEARCH_DEFAULT_DIRS to preserve the normal safe search set
 (application dir, system32, and any AddDllDirectory user dirs).
 
 diff --git a/ggml/src/ggml-backend-dl.cpp b/ggml/src/ggml-backend-dl.cpp
-index a65cf0090..13dea48f6 100644
+index a65cf00..13dea48 100644
 --- a/ggml/src/ggml-backend-dl.cpp
 +++ b/ggml/src/ggml-backend-dl.cpp
 @@ -7,7 +7,18 @@ dl_handle * dl_load_library(const fs::path & path) {

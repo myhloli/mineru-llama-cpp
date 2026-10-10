@@ -15,9 +15,10 @@ from .types import GenerateChunk, GenerateResult, GenerationTimings, Messages
 from .verbosity import LOG_LEVEL_WARN
 
 # "any Unicode codepoint, repeated" -- llama.cpp's grammar-constrained sampler
-# decodes each candidate token's bytes and rejects any token that would leave
-# an invalid/incomplete UTF-8 sequence in the output (see llama-grammar.cpp's
-# decode_utf8()/llama_grammar_match_partial_char()). Occasionally (observed on
+# decodes each candidate token's bytes and rejects invalid UTF-8 sequences
+# (see llama-grammar.cpp's decode_utf8()/llama_grammar_match_partial_char()).
+# Valid characters may span tokens, so a forced length stop still needs
+# boundary-safe decoding in the binding layer. Occasionally (observed on
 # a Q8_0-quantized model, dense/high-resolution pages) the model samples a
 # token that produces a broken multi-byte sequence, which renders as U+FFFD
 # and breaks the downstream peg-native chat-format parser

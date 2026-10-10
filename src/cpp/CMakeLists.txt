@@ -39,6 +39,17 @@ target_link_libraries(_mineru_llama_cpp PRIVATE
     ggml-base
 )
 
+# 将构建时的子模块提交写入扩展，避免诊断误读工作目录中的其他版本。
+execute_process(COMMAND git rev-parse HEAD
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/third_party/llama.cpp"
+    OUTPUT_VARIABLE MINERU_LLAMA_CPP_LLAMA_COMMIT OUTPUT_STRIP_TRAILING_WHITESPACE
+    RESULT_VARIABLE MINERU_LLAMA_CPP_REVISION_RESULT)
+if (NOT MINERU_LLAMA_CPP_REVISION_RESULT EQUAL 0)
+    message(FATAL_ERROR "Cannot determine llama.cpp build revision")
+endif()
+target_compile_definitions(_mineru_llama_cpp PRIVATE
+    MINERU_LLAMA_CPP_LLAMA_COMMIT="${MINERU_LLAMA_CPP_LLAMA_COMMIT}")
+
 # ggml-cpu/ggml-metal are ggml_add_backend_library() targets (see
 # ggml/src/CMakeLists.txt). With GGML_BACKEND_DL=ON (forced in the top-level
 # CMakeLists.txt) they build as standalone MODULE libraries meant to be
@@ -97,15 +108,12 @@ set_target_properties(_mineru_llama_cpp PROPERTIES
     INSTALL_RPATH "$<IF:$<BOOL:${APPLE}>,@loader_path/lib,$<IF:$<BOOL:${WIN32}>,,$ORIGIN/lib>>"
 )
 
-# Build the extension module directly into the source tree so that
-# scikit-build-core's editable "inplace" mode (which runs only `cmake
-# --build`, never `cmake --install`) produces a .so where Python's import
-# machinery actually looks for it. Regular wheel/redirect builds are
-# unaffected: the install(TARGETS) step below copies the .so from here into
-# the wheel exactly as before.
-set_target_properties(_mineru_llama_cpp PROPERTIES
-    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/src/mineru_llama_cpp"
-)
+# editable inplace 不执行 install，将扩展放回源码目录以便导入和类型检查。
+# 普通 wheel 在构建目录产出，再由 install 复制当前 Python ABI 的扩展。
+if (SKBUILD_STATE STREQUAL "editable")
+    set_target_properties(_mineru_llama_cpp PROPERTIES
+        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/src/mineru_llama_cpp")
+endif()
 
 install(TARGETS _mineru_llama_cpp DESTINATION mineru_llama_cpp)
 

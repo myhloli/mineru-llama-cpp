@@ -10,12 +10,14 @@ requires-python = ">=3.10"
 dependencies = []
 
 [project.optional-dependencies]
-test = ["pytest>=7.0", "pytest-asyncio>=0.23", "pillow"]
+test = ["pytest>=7.0", "pytest-asyncio>=0.23", "pillow", "pybind11", "setuptools"]
 
 [tool.scikit-build]
 cmake.build-type = "Release"
 wheel.packages = ["src/mineru_llama_cpp"]
 build-dir = "build"
+# 排除源码中的 editable 原生产物；wheel 扩展始终由 CMake install 提供。
+sdist.exclude = ["src/mineru_llama_cpp/*.so", "src/mineru_llama_cpp/*.pyd"]
 
 # llama.cpp's own CMakeLists.txt installs C/C++ dev artifacts (headers, CMake
 # package config, pkg-config) alongside the runtime shared libs we actually
@@ -86,7 +88,7 @@ norecursedirs = ["legacy_spike"]
 #                             Ninja avoids VS multi-config Release/ subdir
 #                             issue; /utf-8 is already in CMakeLists.txt.
 #
-# Tests are skipped (need GGUF model files, not available in CI).
+# 无模型安装检查验证真实 wheel 的扩展和打包后端。
 # The patch auto-application (patches/llama.cpp/*.patch) requires git in
 # the build container — installed via before-all.
 
@@ -96,7 +98,7 @@ build = "cp310-* cp311-* cp312-* cp313-* cp314-*"
 # containers. musllinux has its own platform tag namespace, and auditwheel
 # auto-detects the right tag (musllinux_1_2_x86_64 etc).
 build-frontend = "build"
-test-skip = "*"
+test-command = "python {project}/tools/wheel_smoke.py"
 # manylinux_2_34 (glibc 2.34) — llama.cpp's vendored subprocess.h uses
 # posix_spawn_file_actions_addchdir_np, which requires glibc >= 2.29.
 # manylinux_2_28 (glibc 2.28) doesn't have it.
@@ -157,12 +159,9 @@ environment = { SKBUILD_CMAKE_ARGS = "" }
 before-all = "apk add --no-cache git"
 
 [tool.cibuildwheel.macos]
-# Metal is auto-detected on Apple Silicon. No extra flags.
-# x86_64 (Intel Mac) is built on a separate macos-13 runner — Metal
-# doesn't work on Intel, so the x86_64 wheel is CPU-only (no Metal
-# backend in the wheel). The arm64 wheel includes Metal; the x86_64
-# wheel doesn't, and ggml-cpu handles all inference.
+# 使用新 SDK 构建、以 macOS 14 为最低目标，运行时选择 Metal 能力。
 archs = ["arm64", "x86_64"]
+environment = { MACOSX_DEPLOYMENT_TARGET = "14.0", SKBUILD_CMAKE_ARGS = "-DGGML_METAL=ON;-DGGML_METAL_EMBED_LIBRARY=ON" }
 
 # Intel Mac build — disable Metal backend (it doesn't work on Intel,
 # per upstream llama.cpp Metal issue tracker, and adds wheel bloat).
@@ -171,7 +170,7 @@ archs = ["arm64", "x86_64"]
 [[tool.cibuildwheel.overrides]]
 select = "cp*-macosx_x86_64"
 inherit = { "environment" = "none", "before-all" = "none" }
-environment = { SKBUILD_CMAKE_ARGS = "-DGGML_METAL=OFF", MACOSX_DEPLOYMENT_TARGET = "10.15" }
+environment = { SKBUILD_CMAKE_ARGS = "-DGGML_METAL=OFF", MACOSX_DEPLOYMENT_TARGET = "14.0" }
 before-all = "brew install ninja"
 
 [tool.cibuildwheel.windows]
