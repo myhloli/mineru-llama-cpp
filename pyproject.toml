@@ -10,7 +10,7 @@ requires-python = ">=3.10"
 dependencies = []
 
 [project.optional-dependencies]
-test = ["pytest>=7.0", "pytest-asyncio>=0.23", "pillow", "setuptools", "packaging"]
+test = ["pytest>=7.0", "pytest-asyncio>=0.23", "pillow", "setuptools", "packaging", "PyYAML>=6.0"]
 
 [tool.scikit-build]
 cmake.build-type = "Release"

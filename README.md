@@ -105,6 +105,35 @@ The aggregate release check requires exactly six wheels and rejects legacy
 CUDA/SYCL modules and runtimes. The macOS build still includes the Xcode 16.4
 compatibility check.
 
+### PyPI publishing
+
+`build-wheels.yml` only builds and validates wheels. `publish-wheels.yml`
+handles both automatic version-tag releases and manual uploads through
+[PyPI Trusted Publishing](https://docs.pypi.org/trusted-publishers/adding-a-publisher/)
+with GitHub OIDC. Only its separate publishing job has `id-token: write`;
+wheel building, selection and verification run without publishing credentials.
+
+Before the first upload, create the GitHub environment `pypi` in
+`opendatalab/mineru-llama-cpp` and register one GitHub Trusted Publisher
+in the PyPI project's **Publishing** settings:
+
+| Owner | Repository | Workflow filename | Environment |
+|---|---|---|---|
+| `opendatalab` | `mineru-llama-cpp` | `publish-wheels.yml` | `pypi` |
+
+Publishing runs only in `opendatalab/mineru-llama-cpp`. Forks can
+build and validate wheels. CI obtains short-lived credentials through OIDC
+and does not use a stored PyPI API token.
+Automatic publishing starts after a successful `v*` tag build and requires
+all six wheels. The publishing workflow must be present on the upstream
+default branch for its `workflow_run` trigger to operate. Ordinary branch
+builds and failed builds do not publish.
+Manual publishing accepts a successful build run from the same repository,
+applies `wheel_glob` as a literal shell argument, audits the selected subset,
+and transfers only those wheels to the publishing job. Both paths verify
+the source run's workflow, repository and successful completion before
+downloading artifacts.
+
 ## Install (development)
 
 ```bash
