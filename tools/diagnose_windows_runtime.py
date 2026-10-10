@@ -27,13 +27,12 @@ def main() -> None:
     package = Path(mineru_llama_cpp.__file__).parent
     report = {}
     handles = []
-    # 先加载 SYCL 主运行库，检查 oneMKL/oneDNN 的延迟导入是否依赖已加载模块。
-    handles.append(ctypes.WinDLL(str(package / "bin/sycl9.dll"), winmode=0x100 | 0x1000))
-    print("Preloaded sycl9.dll", flush=True)
+    all_needed = set()
     for path in sorted((package / "bin").glob("*.dll")):
         with pefile.PE(str(path)) as binary:
             imports = getattr(binary, "DIRECTORY_ENTRY_IMPORT", []) + getattr(binary, "DIRECTORY_ENTRY_DELAY_IMPORT", [])
             needed = sorted({item.dll.decode() for item in imports})
+            all_needed.update(needed)
         try:
             handles.append(ctypes.WinDLL(str(path), winmode=0x100 | 0x1000))
             error = None
@@ -41,6 +40,26 @@ def main() -> None:
             error = str(exception)
         report[path.name] = {"needed": needed, "load_error": error}
         print(json.dumps({path.name: report[path.name]}), flush=True)
+    # 第二遍复核加载顺序；不能把首次失败被后续加载掩盖的情况算作原始通过。
+    for name, result in report.items():
+        if result["load_error"]:
+            try:
+                handles.append(ctypes.WinDLL(str(package / "bin" / name), winmode=0x100 | 0x1000))
+                result["retry_error"] = None
+            except OSError as exception:
+                result["retry_error"] = str(exception)
+            print(json.dumps({"retry": name, "error": result["retry_error"]}), flush=True)
+    # 单独检查系统运行库，避免误把 VC++ 运行库当作始终存在的 Windows 组件。
+    packaged = {path.name.lower() for path in (package / "bin").glob("*.dll")}
+    for name in sorted(all_needed):
+        if name.lower() in packaged or name.lower().startswith(("api-ms-", "ext-ms-")):
+            continue
+        try:
+            handles.append(ctypes.WinDLL(name, winmode=0x1000))
+            error = None
+        except OSError as exception:
+            error = str(exception)
+        print(json.dumps({"system_dependency": name, "error": error}), flush=True)
     (args.directory / "runtime-diagnostics.json").write_text(json.dumps(report, indent=2))
     # Vulkan loader 由显卡驱动提供，无显卡驱动的诊断机器可跳过该可选 MODULE。
     if any(item["load_error"] for name, item in report.items() if name != "ggml-vulkan.dll"):
