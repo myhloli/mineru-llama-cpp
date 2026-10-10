@@ -145,7 +145,7 @@
 +++ b/ggml/src/ggml-sycl/gemm.hpp
 @@ -58,5 +58,8 @@
          primitive_attr.set_scratchpad_mode(dnnl::scratchpad_mode::user);
-
+ 
 -#ifdef GGML_SYCL_F16
 +        // Windows 候选按输入类型计算；禁止 oneDNN 隐式缩窄 F32 覆盖或算子高精度路径。
 +#ifdef MINERU_SYCL_ARL_H_AOT_ONLY

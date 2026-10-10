@@ -1,0 +1,2 @@
+# Unified diff 的空行必须保留上下文前缀；Windows checkout 也固定 LF。
+patches/llama.cpp/*.patch text eol=lf whitespace=-blank-at-eol
