@@ -8,6 +8,8 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+from audit_sycl_aot import audit
+from sycl_profile import WINDOWS_SYCL_PROFILE, fingerprint, validate_module
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -30,10 +32,49 @@ def stage_matches(stage: Path, backend: str) -> bool:
         manifest = json.loads((stage / f"{backend}-build.json").read_text())
         patches = {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
                    for p in (ROOT / "patches/llama.cpp").glob("*.patch") if not p.name.startswith("._")}
-        return (manifest["llama_cpp_commit"] == llama_revision() and manifest["patches"] == patches
-                and (stage / manifest["module"]).is_file())
-    except (OSError, ValueError, KeyError):
+        if manifest["llama_cpp_commit"] != llama_revision() or manifest["patches"] != patches:
+            return False
+        module = stage / manifest["module"]
+        if not module.is_file():
+            return False
+        if os.name == "nt" and backend == "sycl":
+            validate_module(manifest, module.read_bytes())
+            # 新 runner 可以复用审计通过的缓存；SDK 存在时还必须与当前工具链一致。
+            root = Path(os.environ.get("ONEAPI_ROOT", "C:/Program Files (x86)/Intel/oneAPI"))
+            if (root / "compiler/2026.1").is_dir():
+                compiler, ocloc = windows_toolchain(root)
+                if manifest["fingerprint"] != fingerprint(WINDOWS_SYCL_PROFILE, compiler, ocloc):
+                    return False
+        return True
+    except (OSError, ValueError, KeyError, RuntimeError):
         return False
+
+
+def windows_toolchain(root: Path) -> tuple[str, dict]:
+    """仅使用固定 oneAPI 编译器目录的 OCLOC，记录文件版本和二进制摘要。"""
+    import pefile
+    compiler_root = root / "compiler/2026.1"
+    compiler = Path(shutil.which("icx") or "missing")
+    if not compiler.is_file() or not compiler.resolve().is_relative_to(compiler_root.resolve()):
+        raise RuntimeError(f"icx must come from fixed oneAPI 2026.1: {compiler}")
+    version = subprocess.check_output([str(compiler), "--version"], text=True, stderr=subprocess.STDOUT)
+    if "2026.1.1" not in version:
+        raise RuntimeError(f"Unexpected oneAPI compiler version: {version}")
+    candidates = sorted(compiler_root.rglob("ocloc.exe"))
+    if not candidates:
+        raise RuntimeError(f"OCLOC is missing from fixed oneAPI installation: {compiler_root}")
+    # 驱动链接器通过 PATH 查找 ocloc；把审计的版本放到搜索路径首位。
+    ocloc = candidates[0]
+    os.environ["PATH"] = str(ocloc.parent) + os.pathsep + os.environ["PATH"]
+    with pefile.PE(str(ocloc)) as binary:
+        info = binary.VS_FIXEDFILEINFO[0]
+        file_version = ".".join(str(value) for value in (
+            info.FileVersionMS >> 16, info.FileVersionMS & 65535,
+            info.FileVersionLS >> 16, info.FileVersionLS & 65535))
+    identity = {"version": file_version, "sha256": hashlib.sha256(ocloc.read_bytes()).hexdigest(),
+                "relative_path": str(ocloc.relative_to(root)).replace("\\", "/")}
+    print(json.dumps({"compiler": version.strip(), "ocloc": identity}), flush=True)
+    return version, identity
 
 
 def bundle_sycl_runtime(stage: Path, root: Path) -> list[str]:
@@ -101,6 +142,12 @@ def bundle_sycl_runtime(stage: Path, root: Path) -> list[str]:
 def build(backend: str, stage: Path, work: Path) -> None:
     """使用独立编译器构建 MODULE，不暂存 ggml 公共库或开发产物。"""
     stage.mkdir(parents=True, exist_ok=True)
+    windows_sycl = os.name == "nt" and backend == "sycl"
+    toolchain, ocloc = windows_toolchain(Path(os.environ["ONEAPI_ROOT"])) if windows_sycl else (None, None)
+    # 独立构建目录只保存临时产物；配置变化必须清除旧的 FP32/JIT CMake 缓存。
+    if work.exists():
+        shutil.rmtree(work)
+    (stage / f"{backend}-build.json").unlink(missing_ok=True)
     # 与主体配置保持相同补丁集合；重复构建时不重放已应用的补丁。
     patch_hashes = {}
     for patch in sorted((ROOT / "patches/llama.cpp").glob("*.patch")):
@@ -118,7 +165,11 @@ def build(backend: str, stage: Path, work: Path) -> None:
     if os.name != "nt":
         args += ["-DCMAKE_BUILD_WITH_INSTALL_RPATH=ON", "-DCMAKE_INSTALL_RPATH=$ORIGIN;$ORIGIN/../lib"]
     args += ["-DCMAKE_C_COMPILER=" + ("cl" if os.name == "nt" else "icx"),
-             "-DCMAKE_CXX_COMPILER=" + ("icx" if os.name == "nt" else "icpx"), "-DGGML_SYCL_F16=OFF"]
+             "-DCMAKE_CXX_COMPILER=" + ("icx" if os.name == "nt" else "icpx"),
+             "-DGGML_SYCL_F16=" + ("ON" if windows_sycl else "OFF")]
+    if windows_sycl:
+        args += ["-DGGML_SYCL_DEVICE_ARCH=arl-h", "-DMINERU_SYCL_ARL_H_AOT_ONLY=ON",
+                 "-DGGML_SYCL_MAX_PARALLEL_LINK_JOBS=1"]
     subprocess.run(args, check=True)
     if backend == "sycl":
         configuration = (work / "build.ninja").read_text()
@@ -126,6 +177,11 @@ def build(backend: str, stage: Path, work: Path) -> None:
         for required in ("GGML_SYCL_DNNL=1", "GGML_SYCL_GRAPH", "GGML_SYCL_SUPPORT_LEVEL_ZERO_API"):
             if required not in configuration:
                 raise RuntimeError(f"SYCL build is missing required feature: {required}")
+        if windows_sycl:
+            for required in ("GGML_SYCL_F16", "MINERU_SYCL_ARL_H_AOT_ONLY=1", "GGML_SYCL_XMX_AOT_SG=8",
+                             "-fsycl-targets=spir64_gen", "-device arl-h -exclude_ir", "-fsycl-max-parallel-link-jobs=1"):
+                if required not in configuration:
+                    raise RuntimeError(f"Windows AOT build is missing required feature: {required}")
     target = "ggml-" + backend
     subprocess.run(["cmake", "--build", str(work), "--target", target, "--parallel", os.environ.get("CMAKE_BUILD_PARALLEL_LEVEL", "2")], check=True)
     files = list((work / "bin").glob(("" if os.name == "nt" else "lib") + target + (".dll" if os.name == "nt" else ".so")))
@@ -138,9 +194,14 @@ def build(backend: str, stage: Path, work: Path) -> None:
     runtime = bundle_sycl_runtime(stage, Path(os.environ["ONEAPI_ROOT"])) if backend == "sycl" and os.name == "nt" else []
     compiler = "icx" if os.name == "nt" else "icpx"
     # 同时保存编译器版本和补丁摘要，供合包时核验及设备复核时追溯。
-    toolchain = subprocess.check_output([compiler, "--version"], text=True, stderr=subprocess.STDOUT)
+    toolchain = toolchain or subprocess.check_output([compiler, "--version"], text=True, stderr=subprocess.STDOUT)
     manifest = {"backend": backend, "llama_cpp_commit": llama_revision(), "patches": patch_hashes,
                 "module": files[0].name, "bundled_runtime": runtime, "toolchain": toolchain}
+    if windows_sycl:
+        manifest.update(configuration=WINDOWS_SYCL_PROFILE, ocloc=ocloc,
+                        fingerprint=fingerprint(WINDOWS_SYCL_PROFILE, toolchain, ocloc),
+                        aot_audit=audit((stage / files[0].name).read_bytes()))
+        print(json.dumps({key: value for key, value in manifest["aot_audit"].items() if key != "images"}), flush=True)
     (stage / f"{backend}-build.json").write_text(json.dumps(manifest, indent=2))
 
 

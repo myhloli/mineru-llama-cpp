@@ -1,0 +1,143 @@
+--- a/ggml/src/ggml-sycl/CMakeLists.txt
++++ b/ggml/src/ggml-sycl/CMakeLists.txt
+@@ -201,11 +201,21 @@
+ endif()
+ 
+ if (GGML_SYCL_DEVICE_ARCH)
++    # 此候选仅 Windows ARL-H 使用 AOT-only；Linux 默认配置不改变。
++    option(MINERU_SYCL_ARL_H_AOT_ONLY "Windows ARL-H native images without IR fallback" OFF)
++    set(MINERU_SYCL_DEVICE_OPTIONS "-device ${GGML_SYCL_DEVICE_ARCH}")
++    if (MINERU_SYCL_ARL_H_AOT_ONLY)
++        if (NOT WIN32 OR NOT GGML_SYCL_DEVICE_ARCH STREQUAL "arl-h" OR NOT GGML_SYCL_F16)
++            message(FATAL_ERROR "ARL-H AOT-only profile requires Windows, arl-h and FP16")
++        endif()
++        string(APPEND MINERU_SYCL_DEVICE_OPTIONS " -exclude_ir")
++        target_compile_definitions(ggml-sycl PRIVATE MINERU_SYCL_ARL_H_AOT_ONLY=1)
++    endif()
+     message(STATUS "GGML_SYCL_DEVICE_ARCH=${GGML_SYCL_DEVICE_ARCH} (AOT via spir64_gen)")
+     target_compile_options(
+         ggml-sycl PRIVATE
+         -fsycl-targets=spir64_gen
+-        "SHELL:-Xsycl-target-backend=spir64_gen \"-device ${GGML_SYCL_DEVICE_ARCH}\""
++        "SHELL:-Xsycl-target-backend=spir64_gen \"${MINERU_SYCL_DEVICE_OPTIONS}\""
+     )
+ 
+     # Pass through parallel job (process) count for parallelising the
+@@ -220,7 +230,7 @@
+     target_link_options(
+         ggml-sycl PRIVATE
+         -fsycl-targets=spir64_gen
+-        "SHELL:-Xsycl-target-backend=spir64_gen \"-device ${GGML_SYCL_DEVICE_ARCH}\""
++        "SHELL:-Xsycl-target-backend=spir64_gen \"${MINERU_SYCL_DEVICE_OPTIONS}\""
+         -fsycl-max-parallel-link-jobs=${GGML_SYCL_MAX_PARALLEL_LINK_JOBS}
+     )
+ 
+--- a/ggml/src/ggml-sycl/dpct/helper.hpp
++++ b/ggml/src/ggml-sycl/dpct/helper.hpp
+@@ -16,6 +16,9 @@
+ #include <cstdlib>
+ #include <iostream>
+ #include <map>
++#ifdef MINERU_SYCL_ARL_H_AOT_ONLY
++#include "aot_policy.hpp"
++#endif
+ 
+ #include <sycl/sycl.hpp>
+ #include <sycl/half_type.hpp>
+@@ -894,6 +897,14 @@
+         }
+         unsigned int device_count() { return _devs.size(); }
+ 
++#ifdef MINERU_SYCL_ARL_H_AOT_ONLY
++        // 将过滤后的连续 DPCT 编号映射回原设备枚举编号，供诊断和映射回归使用。
++        std::size_t original_device_index(unsigned int id) const {
++            check_id(id);
++            return _aot_source_indices.at(id);
++        }
++#endif
++
+         unsigned int get_device_id(const sycl::device &dev)
+         {
+             unsigned int id = 0;
+@@ -1032,6 +1043,33 @@
+         }
+         dev_mgr()
+         {
++#ifdef MINERU_SYCL_ARL_H_AOT_ONLY
++            // 先查询架构再创建 queue/context；未覆盖 GPU 不触发 oneDNN 或设备内核初始化。
++            auto devices = sycl::device::get_devices(sycl::info::device_type::all);
++            std::vector<dpct_aot::candidate> candidates;
++            for (const auto & device : devices) {
++                dpct_aot::candidate candidate{false, false, false, false};
++                try {
++                    candidate.gpu = device.is_gpu();
++                    candidate.intel = device.get_info<sycl::info::device::vendor_id>() == 0x8086;
++                    candidate.level_zero = device.get_backend() == sycl::backend::ext_oneapi_level_zero;
++                    if (candidate.gpu && candidate.intel)
++                        candidate.arl_h = device.ext_oneapi_architecture_is(
++                            sycl::ext::oneapi::experimental::architecture::intel_gpu_arl_h);
++                } catch (const std::exception & error) {
++                    std::cerr << "SYCL AOT arl-h: architecture query failed: " << error.what() << '\n';
++                }
++                candidates.push_back(candidate);
++            }
++            _aot_source_indices = dpct_aot::select(candidates);
++            for (std::size_t index : _aot_source_indices) {
++                _devs.push_back(std::make_shared<device_ext>(devices[index]));
++                std::cerr << "SYCL AOT arl-h: SYCL" << (_devs.size() - 1)
++                          << " maps to enumerated device " << index << '\n';
++            }
++            if (_devs.empty())
++                std::cerr << "SYCL AOT arl-h: no supported Intel Arrow Lake-H GPU; use Vulkan/CPU\n";
++#else
+             sycl::device default_device =
+                 sycl::device(sycl::default_selector_v);
+             _devs.push_back(std::make_shared<device_ext>(default_device));
+@@ -1087,6 +1125,7 @@
+                     _cpu_device = _devs.size() - 1;
+                 }
+             }
++#endif
+         }
+         void check_id(unsigned int id) const
+         {
+@@ -1096,6 +1135,9 @@
+             }
+         }
+         std::vector<std::shared_ptr<device_ext>> _devs;
++#ifdef MINERU_SYCL_ARL_H_AOT_ONLY
++        std::vector<std::size_t> _aot_source_indices;
++#endif
+         /// DEFAULT_DEVICE_ID is used, if current_device_id() can not find current
+         /// thread id in _thread2dev_map, which means default device should be used
+         /// for the current thread.
+--- /dev/null
++++ b/ggml/src/ggml-sycl/dpct/aot_policy.hpp
+@@ -0,0 +1,27 @@
++// Windows ARL-H AOT 构建的设备过滤策略；纯 C++ 实现便于无 GPU 回归。
++#pragma once
++#include <cstddef>
++#include <vector>
++
++namespace dpct_aot {
++struct candidate {
++    bool gpu;
++    bool intel;
++    bool arl_h;
++    bool level_zero;
++};
++
++// 返回原枚举索引，构建连续 DPCT 编号；优先 Level Zero，避免同一 GPU 重复注册。
++inline std::vector<std::size_t> select(const std::vector<candidate> & devices) {
++    bool use_level_zero = false;
++    for (const auto & device : devices)
++        if (device.gpu && device.intel && device.arl_h && device.level_zero) use_level_zero = true;
++    std::vector<std::size_t> selected;
++    for (std::size_t index = 0; index < devices.size(); ++index) {
++        const auto & device = devices[index];
++        if (device.gpu && device.intel && device.arl_h && (!use_level_zero || device.level_zero))
++            selected.push_back(index);
++    }
++    return selected;
++}
++}

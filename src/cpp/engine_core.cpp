@@ -234,7 +234,17 @@ void select_engine_backend(common_params & params, int requested_layers) {
             ggml_backend_reg_name(ggml_backend_dev_backend_reg(device)));
         candidates.push_back({backend, type == GGML_BACKEND_DEVICE_TYPE_IGPU, index});
     }
-    const auto selected = mineru_llama_cpp::select_backend_devices(candidates, requested, requested_layers == 0);
+    std::vector<size_t> selected;
+    try {
+        selected = mineru_llama_cpp::select_backend_devices(candidates, requested, requested_layers == 0);
+    } catch (const std::runtime_error & error) {
+#if defined(_WIN32) && (defined(_M_X64) || defined(__x86_64__))
+        if (requested == "sycl")
+            throw std::runtime_error(std::string(error.what()) +
+                "; this Windows SYCL candidate supports Arrow Lake-H (arl-h, Arc 130T/140T) only");
+#endif
+        throw;
+    }
     params.devices.clear();
     for (size_t index : selected) {
         auto * device = ggml_backend_dev_get(index);

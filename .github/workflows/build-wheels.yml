@@ -10,7 +10,7 @@ on:
         description: 'Platforms to validate (tag releases always build all)'
         type: choice
         default: all
-        options: [all, linux, windows, windows-arm64, macos, windows-runtime]
+        options: [all, linux, windows, windows-arm64, windows-amd64-sycl, macos, windows-runtime]
       runtime_run_id:
         description: 'Existing build run for the Windows runtime diagnostic only'
         required: false
@@ -189,7 +189,7 @@ jobs:
           path: wheelhouse/*.whl
 
   build_windows:
-    if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'windows'
+    if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'windows' || inputs.platform == 'windows-amd64-sycl'
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
@@ -207,12 +207,31 @@ jobs:
           path: |
             C:/VulkanSDK
             C:/mineru-gpu-backends
-          key: gpu-windows-amd64-sycl-vulkan-${{ hashFiles('llama-cpp-revision.txt', 'third_party/llama.cpp/ggml/**', 'patches/llama.cpp/*.patch', 'tools/setup_windows_gpu.py', 'tools/build_gpu_backends.py', 'tools/download_sdk.py', 'tools/build_level_zero.py') }}
+          key: gpu-windows-amd64-sycl-vulkan-${{ hashFiles('llama-cpp-revision.txt', 'third_party/llama.cpp/ggml/**', 'patches/llama.cpp/*.patch', 'tools/setup_windows_gpu.py', 'tools/build_gpu_backends.py', 'tools/sycl_profile.py', 'tools/audit_sycl_aot.py', 'tools/download_sdk.py', 'tools/build_level_zero.py') }}
           restore-keys: gpu-windows-amd64-sycl-vulkan-
       - name: Install cibuildwheel
         run: pip install cibuildwheel==4.3.0
       - name: Build wheels (Windows AMD64, CPU+Vulkan+SYCL)
-        run: cibuildwheel --output-dir wheelhouse --archs AMD64
+        run: |
+          if ("${{ inputs.platform }}" -eq "windows-amd64-sycl") {
+            # 仅复核变更的 AOT MODULE、设备过滤和安装边界；其他后端模型回归沿用已验证记录。
+            $env:CIBW_TEST_COMMAND = 'python {project}/tools/windows_sycl_smoke.py && python -m pytest {project}/tests/test_sycl_aot.py -q'
+          }
+          cibuildwheel --output-dir wheelhouse --archs AMD64
+      - name: Audit AMD64 wheel AOT images and stable ABI
+        run: |
+          pip install packaging abi3audit
+          python tools/verify_wheels.py wheelhouse --allow-subset
+          Get-ChildItem wheelhouse/*.whl | ForEach-Object {
+            abi3audit --strict $_.FullName
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: diagnostics-windows-amd64-sycl
+          path: C:/mineru-gpu-backends/sycl-build.json
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
           name: wheels-windows-amd64

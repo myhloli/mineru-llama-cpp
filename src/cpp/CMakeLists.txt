@@ -169,6 +169,14 @@ if (DEFINED ENV{MINERU_EXTRA_BACKENDS_DIR} AND NOT "$ENV{MINERU_EXTRA_BACKENDS_D
             message(FATAL_ERROR "GPU manifest must name only its own backend MODULE")
         endif()
         set(backend_files "${MINERU_EXTRA_BACKENDS_DIR}/${backend_module}" "${manifest}")
+        if (WIN32 AND backend_name STREQUAL "sycl")
+            # 合包时复核配置、工具链指纹和实际原生映像；旧 FP32/JIT MODULE 不可混入。
+            execute_process(COMMAND "${Python_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/sycl_profile.py" "${manifest}"
+                RESULT_VARIABLE profile_result ERROR_VARIABLE profile_error)
+            if (NOT profile_result EQUAL 0)
+                message(FATAL_ERROR "Windows SYCL AOT/FP16 validation failed: ${profile_error}")
+            endif()
+        endif()
         string(JSON runtime_count LENGTH "${manifest_json}" bundled_runtime)
         if (WIN32 AND backend_name STREQUAL "sycl" AND runtime_count LESS 1)
             message(FATAL_ERROR "Windows SYCL MODULE requires its bundled runtime manifest")

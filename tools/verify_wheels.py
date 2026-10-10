@@ -6,6 +6,7 @@ from pathlib import Path
 import zipfile
 from packaging.utils import parse_wheel_filename
 from windows_pe import pe_machine
+from sycl_profile import validate_module
 
 PLATFORMS = {
     "manylinux_2_28_x86_64": {"cpu", "vulkan", "sycl"},
@@ -63,6 +64,7 @@ def verify(wheels: list[Path], require_all: bool = True) -> list[dict]:
                 if manifest["backend"] != backend or f"mineru_llama_cpp/bin/{manifest['module']}" not in names:
                     raise ValueError(f"Invalid {backend} manifest: {wheel.name}")
                 if platform == "win_amd64" and backend == "sycl":
+                    validate_module(manifest, archive.read(f"mineru_llama_cpp/bin/{manifest['module']}"))
                     if not manifest["bundled_runtime"] or not any(item.startswith("mineru_llama_cpp/bin/licenses/oneapi/") for item in names):
                         raise ValueError("Windows SYCL runtime and license notices are required")
                     if "ze_loader.dll" not in manifest["bundled_runtime"] or not any(item.startswith("mineru_llama_cpp/bin/licenses/level-zero/") for item in names):
@@ -74,6 +76,8 @@ def verify(wheels: list[Path], require_all: bool = True) -> list[dict]:
                 basename = Path(item).name.lower()
                 if "ggml-cuda" in basename or basename == "cuda-build.json" or basename.startswith(("nvcuda", "cudart", "cublas", "nvrtc", "nvjitlink", "libcuda", "libcublas", "libnvrtc", "libnvjitlink")):
                     raise ValueError(f"CUDA backend/runtime is not supported: {item}")
+                if basename.startswith("ocloc"):
+                    raise ValueError(f"OCLOC is build-only and must not be bundled: {item}")
                 if platform.startswith("manylinux") and basename.startswith(EXTERNAL_LINUX_PREFIXES):
                     raise ValueError(f"Linux GPU runtime must remain external: {item}")
         reports.append({"wheel": wheel.name, "platform": platform, "required_backends": sorted(PLATFORMS[platform]), "extension": extensions[0], "pe_machines": machines})
