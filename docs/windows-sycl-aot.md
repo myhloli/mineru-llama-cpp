@@ -4,7 +4,8 @@
 `GGML_SYCL_F16=ON`、`GGML_SYCL_DEVICE_ARCH=arl-h`，编译和链接都传入
 `-fsycl-targets=spir64_gen -Xsycl-target-backend=spir64_gen "-device arl-h -exclude_ir"`。
 XMX subgroup 为 8，OCLOC 并行链接任务为 1。构建清单记录实际编译器版本、
-固定安装目录 OCLOC 的 PE 文件版本及 SHA256，并审计最终 DLL 内嵌的 Intel Zebin ELF。
+固定组件 `ocloc/2026.1/bin/ocloc.exe` 的 PE 文件版本 `32.0.101.8974` 及 SHA256，
+并审计最终 DLL 内嵌的 Intel Zebin ELF。
 审计必须找到原生机器码、ARL-H `12.74` 兼容信息，且容器/原生映像不携带备用 SPIR-V。
 仅声明 CMake 参数不足以通过检查。
 
@@ -17,6 +18,8 @@ Linux SYCL 暂时保持 FP32/JIT；其他平台及 Q8_0 模型、视觉投影文
 FP16 构建使上游 `GGML_SYCL_DYNAMIC_PRECISION` 默认值为 `F16`，
 `GGML_SYCL_DYNAMIC_REQUIRED_PRECISION` 仍默认为 `F32`。XMX 使用 float 累加，
 oneDNN/oneMKL 半精度 GEMM 使用 float 输出/计算类型。明确要求高精度的算子仍走原路径。
+Windows 专用补丁显式设置 oneDNN `fpmath_mode::strict`，避免上游 F16 编译开关
+把 F32 覆盖或高精度算子的 F32 输入再隐式缩窄；FP16 输入依旧执行 FP16 GEMM。
 已有环境变量覆盖仍可用，例如 PowerShell 中：
 
 ```powershell

@@ -4,9 +4,10 @@ import json
 from pathlib import Path
 
 WINDOWS_SYCL_PROFILE = {
-    "profile": "windows-arl-h-aot-f16-v1", "toolkit": "2026.1.1",
+    "profile": "windows-arl-h-aot-f16-v2", "toolkit": "2026.1.1",
     "precision": "f16", "aot_target": "arl-h", "exclude_ir": True,
     "xmx_subgroup": 8, "jit_fallback": False, "parallel_aot_jobs": 1,
+    "f32_math": "strict",
 }
 WINDOWS_OCLOC_VERSION = "32.0.101.8974"
 WINDOWS_OCLOC_RELATIVE_PATH = "ocloc/2026.1/bin/ocloc.exe"

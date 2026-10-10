@@ -21,12 +21,49 @@ CMake 强制关闭 CUDA，发布审计拒绝遗留 CUDA MODULE、manifest 和运
 
 - 六个平台各一个 cp310-abi3 wheel，Python 3.10–3.14 复用同一产物安装测试。
 - Linux x86_64 保留原有 v3 指令集要求；glibc 下限为 2.28。
-- SYCL：oneAPI 2026.1.1，FP32、oneDNN、Graph；固定构建 Level Zero 1.33.1，保证独显/集显分类。
+- SYCL：oneAPI 2026.1.1，oneDNN、Graph 编译支持且 Graph 默认关闭；Windows AMD64 使用 ARL-H AOT/FP16，Linux x86_64 保持 FP32/JIT；固定构建 Level Zero 1.33.1，保证独显/集显分类。
 - Windows 内置 SYCL 依赖闭包、Level Zero loader 及许可；Linux 仅包含 SYCL MODULE，运行库由用户安装。
 - NVIDIA 和 AMD RDNA3/4 使用 Vulkan；GPU 驱动始终由系统提供。
 - macOS 保留现有 llama.cpp Metal/CPU。MLX 是不同推理实现，本轮没有迁移至 MLX。
 - 自动模式独显优先，同等级 SYCL/Metal/Vulkan；一个引擎选择一个后端，投影器保持一致。
 - 零层卸载强制 CPU；显式请求不可用后端报错；推理开始后的错误不自动重跑。
+
+## Windows AMD64 Arc 130T AOT/FP16 增量
+
+只替换 Windows AMD64 wheel；其他五包复用上一批原始文件。
+构建和缓存契约明确固定 `arl-h`、F16、备用 IR 排除、XMX subgroup=8、
+并行 AOT 链接任务=1、oneAPI 编译器及 OCLOC 版本。最终 MODULE 的审计直接解析
+Intel GPU Zebin ELF，核对 `12.74` 兼容 note、原生机器码及无备用 SPIR-V；
+还检查 ELF 外的独立 SPIR-V 映像，不能凭 CMake 参数认定 AOT 成功。
+旧 FP32/JIT 清单、配置或工具链不一致的缓存和 MODULE 均拒绝合包。
+
+设备先经 `intel_gpu_arl_h` 架构查询过滤，再创建 queue/context 和 oneDNN 探测。
+未知/不匹配设备不注册为 SYCL；自动模式继续 Vulkan/CPU，显式 SYCL 报告 ARL-H 限制。
+连续内部编号对应原枚举编号，默认设备、注册索引和多设备分配使用同一列表。
+模型及投影保持相同后端，零层卸载保留 CPU，推理错误不重跑。
+FP16 默认沿用上游精度策略，保留 FP32 累加、高精度要求及环境变量覆盖。
+
+本地专项回归 36 passed，覆盖过滤、混合架构、多个匹配设备、无法识别架构、
+原编号映射、严格选择和零层 CPU，以及 ELF、备用 IR、缓存指纹和质量比较工具。
+原始 Windows FP32/JIT wheel 及六包归档已保存在
+`previous-windows-amd64-fp32-jit/`，不会被新的候选覆盖。
+
+Windows 专项 CI 只运行本平台新 MODULE、运行库闭包、Python 3.10–3.14 安装、
+无设备 CPU 回退、设备策略及严格 abi3 / AMD64 PE 审计，其他平台与原有 CPU/Vulkan
+模型回归均跳过。对应 CI 与最终产物审计结果在本节交付时补充。
+前两次构建分别纠正了 OCLOC 独立组件的安装目录，以及 SDK 架构查询方法的 const 限制；
+失败记录不作为候选验收成功证据。
+
+Arc 130T 实机性能和输出质量待验证；本机是 Apple M4，没有目标 Windows GPU。
+[同机对比说明](windows-sycl-aot.md) 提供三轮交替独立进程工具
+`tools/benchmark_arc_sycl.py`，比较旧 SYCL、新 SYCL 和 Vulkan，记录初始化、首次/预热任务、
+完整 MinerU PDF 解析导出、峰值工作集、流式、取消、关闭重建及模型/投影设备一致性。
+输出差异按页/块记录，不要求逐字或 JSON 字节一致；有结构缺失、漏块、内容消失、
+乱码或非有限值时拒绝，其他差异仍需对照原 PDF 人工确认内容与结构不退化。
+AOT 不覆盖 oneDNN/oneMKL 的全部内部初始化，也不预设新 SYCL 必须快于 Vulkan。
+精度复核发现上游 F16 开关会让 oneDNN 允许缩窄 F32 输入；Windows 专用补丁
+显式使用 `fpmath_mode::strict`，F16 输入仍执行 F16 GEMM，同时保留 F32 覆盖和高精度路径。
+构建契约升级为 v2，拒绝没有这项保护的过渡模块。
 
 ## Windows ARM64 Vulkan 增量
 

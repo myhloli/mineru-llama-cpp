@@ -72,7 +72,8 @@ def system_evidence() -> dict:
 
 async def cancellation_check(engine, messages, sampling) -> dict:
     """取消异步等待后继续同步/异步流式调用，保持后台任务完成的既有语义。"""
-    task = asyncio.create_task(engine.agenerate(messages, replace(sampling, n_predict=256)))
+    long_request = [{"role": "user", "content": "Count from 1 to 1000, one number per line; do not stop early."}]
+    task = asyncio.create_task(engine.agenerate(long_request, replace(sampling, n_predict=256)))
     await asyncio.sleep(0.01)
     task.cancel()
     cancelled = False

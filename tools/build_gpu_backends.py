@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -143,6 +144,14 @@ def bundle_sycl_runtime(stage: Path, root: Path) -> list[str]:
 
 def build(backend: str, stage: Path, work: Path) -> None:
     """使用独立编译器构建 MODULE，不暂存 ggml 公共库或开发产物。"""
+    # 仅清理本工具的已识别构建目录，禁止误删源码、暂存目录或用户其他文件。
+    if ROOT == work or ROOT.is_relative_to(work) or stage.is_relative_to(work):
+        raise ValueError("GPU --work must be a disposable build directory separate from source and stage")
+    if work.exists() and any(work.iterdir()):
+        cache = work / "CMakeCache.txt"
+        home = re.search(r"^CMAKE_HOME_DIRECTORY:INTERNAL=(.+)$", cache.read_text(), re.MULTILINE) if cache.is_file() else None
+        if not home or Path(home[1]).resolve() != (ROOT / "third_party/llama.cpp").resolve():
+            raise ValueError(f"Refusing to erase an unrecognized build directory: {work}")
     stage.mkdir(parents=True, exist_ok=True)
     windows_sycl = os.name == "nt" and backend == "sycl"
     toolchain, ocloc = windows_toolchain(Path(os.environ["ONEAPI_ROOT"])) if windows_sycl else (None, None)
@@ -212,7 +221,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--backend", choices=["sycl"], required=True)
     parser.add_argument("--stage", type=Path, required=True)
-    parser.add_argument("--work", type=Path, required=True)
+    parser.add_argument("--work", type=Path, required=True, help="可清理的独立 CMake 临时构建目录")
     parser.add_argument("--check-stage", action="store_true")
     args = parser.parse_args()
     if args.check_stage:

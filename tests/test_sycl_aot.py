@@ -156,3 +156,16 @@ def test_stage_cache_rebuilds_old_profile_and_changed_module(tmp_path, monkeypat
     del manifest["configuration"]
     source.write_text(json.dumps(manifest))
     assert not builder.stage_matches(stage, "sycl")
+
+
+def test_build_cleanup_cannot_erase_source_or_unknown_files(tmp_path):
+    """重建缓存时只允许清理已识别临时构建目录，原源码和用户文件必须保留。"""
+    import build_gpu_backends as builder
+    with pytest.raises(ValueError, match="disposable"):
+        builder.build("sycl", tmp_path / "stage", builder.ROOT)
+    notes = tmp_path / "work"
+    notes.mkdir()
+    (notes / "notes.txt").write_text("preserve")
+    with pytest.raises(ValueError, match="unrecognized"):
+        builder.build("sycl", tmp_path / "stage", notes)
+    assert (notes / "notes.txt").read_text() == "preserve"
