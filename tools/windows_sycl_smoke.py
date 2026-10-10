@@ -41,13 +41,13 @@ def main() -> None:
     if count == 0:
         os.environ["MINERU_LLAMA_CPP_BACKEND"] = "sycl"
         try:
-            mineru_llama_cpp.Engine("missing-for-sycl-smoke.gguf", n_gpu_layers=99)
+            mineru_llama_cpp.Engine("missing-for-sycl-smoke.gguf", "missing-mmproj.gguf", n_ctx_seq=8192, n_gpu_layers=99)
         except RuntimeError as error:
             assert "arl-h" in str(error), str(error)
         else:
             raise AssertionError("Explicit unavailable SYCL must fail")
         try:
-            mineru_llama_cpp.Engine("missing-for-sycl-smoke.gguf", n_gpu_layers=0)
+            mineru_llama_cpp.Engine("missing-for-sycl-smoke.gguf", "missing-mmproj.gguf", n_ctx_seq=8192, n_gpu_layers=0)
         except RuntimeError as error:
             assert "arl-h" not in str(error), "Zero layers did not force CPU"
         else:
