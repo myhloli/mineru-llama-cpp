@@ -24,6 +24,18 @@ def llama_revision() -> str:
     return expected
 
 
+def stage_matches(stage: Path, backend: str) -> bool:
+    """复核缓存提交、补丁及 MODULE 是否完整，旧补丁缓存只用于复用 SDK。"""
+    try:
+        manifest = json.loads((stage / f"{backend}-build.json").read_text())
+        patches = {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+                   for p in (ROOT / "patches/llama.cpp").glob("*.patch") if not p.name.startswith("._")}
+        return (manifest["llama_cpp_commit"] == llama_revision() and manifest["patches"] == patches
+                and (stage / manifest["module"]).is_file())
+    except (OSError, ValueError, KeyError):
+        return False
+
+
 def bundle_sycl_runtime(stage: Path, root: Path) -> list[str]:
     """按上游 2026.1.1 清单复制运行库，并验证 PE 的递归 DLL 依赖。"""
     import pefile
@@ -138,7 +150,10 @@ def main() -> None:
     parser.add_argument("--backend", choices=["sycl"], required=True)
     parser.add_argument("--stage", type=Path, required=True)
     parser.add_argument("--work", type=Path, required=True)
+    parser.add_argument("--check-stage", action="store_true")
     args = parser.parse_args()
+    if args.check_stage:
+        sys.exit(0 if stage_matches(args.stage.resolve(), args.backend) else 1)
     build(args.backend, args.stage.resolve(), args.work.resolve())
 
 

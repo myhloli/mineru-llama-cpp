@@ -10,8 +10,15 @@ yum install -y git curl tar xz unzip make gcc gcc-c++
 python -m pip install 'cmake==3.31.10' ninja
 export CMAKE_BUILD_PARALLEL_LEVEL="${CMAKE_BUILD_PARALLEL_LEVEL:-2}"
 mkdir -p "$tools_prefix" "$work_dir" "$stage_dir"
+# 只有固定 SDK 版本才可复用；后端补丁变化时仅重建 SYCL MODULE。
 if [ -x "$tools_prefix/bin/glslc" ]; then
-    if [ "$(uname -m)" = aarch64 ] || [ -f "$stage_dir/sycl-build.json" ]; then
+    if ! python -c 'from pathlib import Path; import re, subprocess, sys; root=Path(sys.argv[1]); assert re.search(r"#define\s+VK_HEADER_VERSION\s+350\b", (root/"include/vulkan/vulkan_core.h").read_text()); assert "2026.1" in subprocess.check_output([str(root/"bin/glslc"), "--version"], text=True)' "$tools_prefix"; then
+        rm -rf "$tools_prefix"
+        mkdir -p "$tools_prefix"
+    fi
+fi
+if [ -x "$tools_prefix/bin/glslc" ]; then
+    if [ "$(uname -m)" = aarch64 ] || python "$project_root/tools/build_gpu_backends.py" --backend sycl --stage "$stage_dir" --work "$work_dir/sycl" --check-stage; then
         # 缓存键包含后端源码、补丁和工具脚本；CMake install 仍会核验提交一致。
         echo "Using cached Vulkan tools and independently built GPU MODULEs"
         exit 0
@@ -25,22 +32,24 @@ clone_tool() {
         git clone --depth 1 --branch "$repo_tag" "$repo_url" "$work_dir/$repo_name"
     fi
 }
-clone_tool Vulkan-Headers https://github.com/KhronosGroup/Vulkan-Headers.git vulkan-sdk-1.4.350.0
-clone_tool Vulkan-Loader https://github.com/KhronosGroup/Vulkan-Loader.git vulkan-sdk-1.4.350.0
-clone_tool shaderc https://github.com/google/shaderc.git v2026.1
-cmake -S "$work_dir/Vulkan-Headers" -B "$work_dir/headers-build" -G Ninja -DCMAKE_INSTALL_PREFIX="$tools_prefix"
-cmake --build "$work_dir/headers-build" --target install
-cmake -S "$work_dir/Vulkan-Loader" -B "$work_dir/loader-build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_INSTALL_PREFIX="$tools_prefix" -DCMAKE_PREFIX_PATH="$tools_prefix" \
-    -DBUILD_WSI_XCB_SUPPORT=OFF -DBUILD_WSI_XLIB_SUPPORT=OFF -DBUILD_WSI_WAYLAND_SUPPORT=OFF -DBUILD_TESTS=OFF
-cmake --build "$work_dir/loader-build" --target install --parallel "$CMAKE_BUILD_PARALLEL_LEVEL"
-(cd "$work_dir/shaderc" && python utils/git-sync-deps)
-cmake -S "$work_dir/shaderc" -B "$work_dir/shaderc-build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_INSTALL_PREFIX="$tools_prefix" -DSHADERC_SKIP_TESTS=ON -DSHADERC_SKIP_EXAMPLES=ON \
-    -DSHADERC_SKIP_COPYRIGHT_CHECK=ON -DSPIRV_SKIP_TESTS=ON -DGLSLANG_ENABLE_INSTALL=OFF
-cmake --build "$work_dir/shaderc-build" --target install --parallel "$CMAKE_BUILD_PARALLEL_LEVEL"
-cmake -S "$work_dir/shaderc/third_party/spirv-headers" -B "$work_dir/spirv-headers-build" -G Ninja -DCMAKE_INSTALL_PREFIX="$tools_prefix"
-cmake --build "$work_dir/spirv-headers-build" --target install
+if [ ! -x "$tools_prefix/bin/glslc" ]; then
+    clone_tool Vulkan-Headers https://github.com/KhronosGroup/Vulkan-Headers.git vulkan-sdk-1.4.350.0
+    clone_tool Vulkan-Loader https://github.com/KhronosGroup/Vulkan-Loader.git vulkan-sdk-1.4.350.0
+    clone_tool shaderc https://github.com/google/shaderc.git v2026.1
+    cmake -S "$work_dir/Vulkan-Headers" -B "$work_dir/headers-build" -G Ninja -DCMAKE_INSTALL_PREFIX="$tools_prefix"
+    cmake --build "$work_dir/headers-build" --target install
+    cmake -S "$work_dir/Vulkan-Loader" -B "$work_dir/loader-build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX="$tools_prefix" -DCMAKE_PREFIX_PATH="$tools_prefix" \
+        -DBUILD_WSI_XCB_SUPPORT=OFF -DBUILD_WSI_XLIB_SUPPORT=OFF -DBUILD_WSI_WAYLAND_SUPPORT=OFF -DBUILD_TESTS=OFF
+    cmake --build "$work_dir/loader-build" --target install --parallel "$CMAKE_BUILD_PARALLEL_LEVEL"
+    (cd "$work_dir/shaderc" && python utils/git-sync-deps)
+    cmake -S "$work_dir/shaderc" -B "$work_dir/shaderc-build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX="$tools_prefix" -DSHADERC_SKIP_TESTS=ON -DSHADERC_SKIP_EXAMPLES=ON \
+        -DSHADERC_SKIP_COPYRIGHT_CHECK=ON -DSPIRV_SKIP_TESTS=ON -DGLSLANG_ENABLE_INSTALL=OFF
+    cmake --build "$work_dir/shaderc-build" --target install --parallel "$CMAKE_BUILD_PARALLEL_LEVEL"
+    cmake -S "$work_dir/shaderc/third_party/spirv-headers" -B "$work_dir/spirv-headers-build" -G Ninja -DCMAKE_INSTALL_PREFIX="$tools_prefix"
+    cmake --build "$work_dir/spirv-headers-build" --target install
+fi
 export VULKAN_SDK="$tools_prefix"
 export PATH="$tools_prefix/bin:$PATH"
 if [ "$(uname -m)" = x86_64 ]; then

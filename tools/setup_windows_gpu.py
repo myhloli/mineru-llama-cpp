@@ -1,12 +1,21 @@
 """安装固定 Vulkan/oneAPI 构建工具，构建内置运行库的 SYCL 后端。"""
 from __future__ import annotations
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
 from download_sdk import download
+from build_gpu_backends import stage_matches
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def vulkan_ready(prefix: Path) -> bool:
+    """仅复用固定版本 Vulkan SDK，旧版本缓存不能改变发布组件版本。"""
+    header = prefix / "Include/vulkan/vulkan_core.h"
+    return ((prefix / "Bin/glslc.exe").is_file() and header.is_file()
+            and re.search(r"#define\s+VK_HEADER_VERSION\s+350\b", header.read_text()) is not None)
 
 
 def run_installer(command: list[str]) -> None:
@@ -22,13 +31,14 @@ def main() -> None:
     stage = Path(os.environ["MINERU_EXTRA_BACKENDS_DIR"])
     work.mkdir(parents=True, exist_ok=True)
     vulkan = Path(os.environ["VULKAN_SDK"])
-    if (vulkan / "Bin/glslc.exe").exists() and (stage / "sycl-build.json").exists():
+    if vulkan_ready(vulkan) and stage_matches(stage, "sycl"):
         print("Using cached Vulkan SDK and independently built GPU MODULEs")
         return
-    installer = work / "vulkan_sdk.exe"
-    download("https://sdk.lunarg.com/sdk/download/1.4.350.0/windows/vulkan_sdk.exe", installer)
-    run_installer([str(installer), "-t", str(vulkan), "--accept-licenses", "--default-answer", "--confirm-command", "install"])
-    installer.unlink()
+    if not vulkan_ready(vulkan):
+        installer = work / "vulkan_sdk.exe"
+        download("https://sdk.lunarg.com/sdk/download/1.4.350.0/windows/vulkan_sdk.exe", installer)
+        run_installer([str(installer), "-t", str(vulkan), "--accept-licenses", "--default-answer", "--confirm-command", "install"])
+        installer.unlink()
     installer = work / "oneapi.exe"
     download("https://registrationcenter-download.intel.com/akdlm/IRC_NAS/0cb67a0d-67f6-410b-868b-f4a0a17ff0cf/intel-oneapi-toolkit-2026.1.1.32_offline.exe", installer)
     extracted = work / "oneapi-extracted"
