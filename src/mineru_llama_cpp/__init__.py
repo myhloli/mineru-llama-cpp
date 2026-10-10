@@ -1,4 +1,7 @@
 import os
+import ctypes
+import json
+import logging
 from pathlib import Path
 
 # Windows has no RPATH ($ORIGIN / @loader_path). The .pyd's DLL dependencies
@@ -20,6 +23,32 @@ from pathlib import Path
 # patches/llama.cpp/0002-fix-windows-backend-dll-search.patch); the directories
 # registered here cover the .pyd/ctypes load paths.
 _dll_directory_handles: list = []
+_sycl_runtime_handles: list = []
+
+
+def _preload_windows_sycl_runtime(package: Path) -> None:
+    """预加载内置运行库，兼容 Intel DLL 内部使用传统搜索路径的加载行为。"""
+    manifest = package / "bin/sycl-build.json"
+    if not manifest.is_file():
+        return
+    try:
+        pending = json.loads(manifest.read_text())["bundled_runtime"]
+        # 先加载能够独立解析的库，再复核其余库；不修改进程 PATH。
+        for _ in range(2):
+            unavailable = []
+            for name in pending:
+                try:
+                    _sycl_runtime_handles.append(ctypes.WinDLL(str(package / "bin" / name), winmode=0x100 | 0x1000))
+                except OSError:
+                    unavailable.append(name)
+            pending = unavailable
+            if not pending:
+                break
+        if pending:
+            logging.getLogger(__name__).debug("Bundled SYCL runtime DLLs could not load: %s", pending)
+    except (OSError, ValueError, KeyError):
+        # 可选运行库损坏不能阻止导入 CPU 接口；原生后端加载仍会提供诊断。
+        logging.getLogger(__name__).debug("Could not read bundled SYCL runtime manifest", exc_info=True)
 
 if os.name == "nt":
     _pkg = Path(__file__).resolve().parent
@@ -31,6 +60,7 @@ if os.name == "nt":
     ]:
         if _d.is_dir():
             _dll_directory_handles.append(os.add_dll_directory(str(_d)))
+    _preload_windows_sycl_runtime(_pkg)
 
 from .engine import Engine
 from .exceptions import (

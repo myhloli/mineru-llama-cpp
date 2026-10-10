@@ -3,9 +3,11 @@ from __future__ import annotations
 import argparse
 import ctypes
 import json
+import importlib.metadata
 import os
 from pathlib import Path
 import subprocess
+import shutil
 import sys
 
 
@@ -19,6 +21,9 @@ def main() -> None:
     if len(wheels) != 1:
         raise RuntimeError(f"Expected one Windows AMD64 wheel, got {wheels}")
     subprocess.run([sys.executable, "-m", "pip", "install", str(wheels[0])], check=True)
+    # 使用当前源码的 Windows 启动代码复核已有二进制，无需重新编译 GPU MODULE。
+    installed = importlib.metadata.distribution("mineru-llama-cpp").locate_file("mineru_llama_cpp/__init__.py")
+    shutil.copy2(Path(__file__).resolve().parents[1] / "src/mineru_llama_cpp/__init__.py", installed)
     # 保持与安装测试相同的搜索路径，禁止构建工具链掩盖缺失 DLL。
     os.environ.pop("ONEAPI_ROOT", None)
     os.environ["PATH"] = os.pathsep.join(p for p in os.environ.get("PATH", "").split(os.pathsep)
