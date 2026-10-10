@@ -68,7 +68,8 @@ Windows 无 SDK 复核进一步发现 Intel DLL 内部加载顺序要求。
 补丁将该初始化错误向可选后端加载器传播，允许回退至 Vulkan/CPU。
 最终完整重建为 CI run `38021630646`，全部构建与汇总审计通过。
 Windows 五个 Python 版本均记录附带 SYCL MODULE / DLL 加载成功，
-随后无设备初始化错误被隔离，CPU 保持可用；没有安装 oneAPI SDK 来掩盖依赖。
+随后无设备初始化错误被隔离，CPU 保持可用；额外在 [未安装 oneAPI SDK 的独立 Windows 任务](https://github.com/myhloli/mineru-llama-cpp/actions/runs/38024157828)
+使用未经修改的最终 wheel 复核，新进程直接加载 SYCL 及 CPU 回退均通过。
 预加载发生在模型创建前，失败仍允许 CPU 导入；不修改 PATH，不重跑模型请求。
 初轮还曾发现上游 Metal 注册名为 MTL，已映射并加入回归；错误回退 CPU 的那轮已作废。
 
@@ -115,3 +116,18 @@ Vulkan 将环境变量改为 `vulkan`；Windows 在启动 Python 前设置同名
 
 oneAPI 系统要求依据：[Intel oneAPI 2026 编译器发布与系统要求](https://www.intel.com/content/www/us/en/developer/articles/release-notes/oneapi-dpcpp/2026.html)。
 RHEL 8.10 在支持范围内，仍以最终包内全部 ELF 的 glibc、GLIBCXX、CXXABI 和动态依赖审计为发布门槛。
+
+## 最终候选包
+
+本地归档：`build/abi3-validation/mineru-llama-cpp-abi3-candidates.zip`。每包仅含一个 Python 扩展。
+
+| 平台 | 压缩 wheel 大小 |
+|---|---:|
+| macosx_14_0_arm64 | 6.03 MiB |
+| macosx_14_0_x86_64 | 5.54 MiB |
+| manylinux_2_28_aarch64 | 19.78 MiB |
+| manylinux_2_28_x86_64 | 36.65 MiB |
+| win_amd64 | 146.18 MiB |
+| win_arm64 | 5.47 MiB |
+
+SHA256 与完整字节数：`delivery-sizes.json`。Windows AMD64 包含 SYCL 运行库，Linux 保持外部依赖策略。
