@@ -14,7 +14,8 @@ PLATFORMS = {
     "macosx_14_0_arm64": {"cpu", "metal"},
     "macosx_14_0_x86_64": {"cpu"},
 }
-EXTERNAL_LINUX_PREFIXES = ("libcuda", "libcublas", "libsycl", "libmkl", "libdnnl", "libtbb", "libur_", "libiomp", "libumf", "libtcm", "libze_loader")
+EXTERNAL_LINUX_PREFIXES = ("libcuda", "libcublas", "libsycl", "libmkl", "libdnnl", "libtbb", "libur_", "libiomp", "libumf", "libtcm", "libze_loader",
+                           "libhwloc", "libsvml", "libimf", "libintlc", "libirng", "libOpenCL.so", "libvulkan.so")
 
 
 def verify(wheels: list[Path], require_all: bool = True) -> list[dict]:

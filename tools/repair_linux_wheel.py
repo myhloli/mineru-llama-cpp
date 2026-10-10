@@ -11,7 +11,7 @@ import tempfile
 import zipfile
 
 GPU_RUNTIME_PREFIXES = ("libsycl", "libmkl", "libdnnl", "libtbb",
-                        "libiomp", "libur_", "libumf", "libtcm", "libhwloc", "libsvml", "libimf", "libintlc",
+                        "libiomp", "libur_", "libumf", "libtcm", "libhwloc", "libsvml", "libimf", "libintlc", "libirng",
                         "libOpenCL.so", "libvulkan.so", "libze_loader")
 
 

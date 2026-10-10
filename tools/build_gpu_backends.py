@@ -48,7 +48,7 @@ def bundle_sycl_runtime(stage: Path, root: Path) -> list[str]:
         copied.append(name)
     system = {"kernel32.dll", "ntdll.dll", "advapi32.dll", "user32.dll", "gdi32.dll", "shell32.dll", "ole32.dll",
               "oleaut32.dll", "ws2_32.dll", "shlwapi.dll", "bcrypt.dll", "version.dll", "setupapi.dll",
-              "cfgmgr32.dll", "psapi.dll", "dbghelp.dll", "dbgcore.dll", "ucrtbase.dll", "msvcrt.dll",
+              "cfgmgr32.dll", "psapi.dll", "dbghelp.dll", "dbgcore.dll", "imagehlp.dll", "wintrust.dll", "ucrtbase.dll", "msvcrt.dll",
               "msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll"}
     # 未在静态清单里的 Intel 依赖也需复制，不能依赖构建机 PATH。
     queue = [stage / name for name in copied] + [stage / "ggml-sycl.dll"]
