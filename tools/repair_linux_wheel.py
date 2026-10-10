@@ -94,7 +94,10 @@ def repair(wheel: Path, destination: Path) -> None:
     # 报告写在 wheelhouse 之外，发布目录只收集真正的 wheel。
     audit_dir = destination.parent / "wheel-audits"
     audit_dir.mkdir(parents=True, exist_ok=True)
-    (audit_dir / (wheel.stem + ".json")).write_text(json.dumps({"external_gpu_runtime": sorted(external), "elf": report}, indent=2))
+    final_report = json.dumps({"external_gpu_runtime": sorted(external), "elf": report}, indent=2)
+    (audit_dir / (wheel.stem + ".json")).write_text(final_report)
+    # 保留修复后全部 ELF 的报告，包括 auditwheel 新加入的运行库，便于交付复核。
+    (diagnostics / (repaired[0].stem + ".post.json")).write_text(final_report)
 
 
 def main() -> None:
