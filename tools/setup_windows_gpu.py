@@ -1,5 +1,6 @@
 """安装固定 Vulkan/oneAPI 构建工具，构建内置运行库的 SYCL 后端。"""
 from __future__ import annotations
+import argparse
 import os
 import re
 from pathlib import Path
@@ -7,15 +8,18 @@ import subprocess
 import sys
 from download_sdk import download
 from build_gpu_backends import stage_matches
+from windows_pe import pe_machine
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def vulkan_ready(prefix: Path) -> bool:
+def vulkan_ready(prefix: Path, machine: int | None = None) -> bool:
     """仅复用固定版本 Vulkan SDK，旧版本缓存不能改变发布组件版本。"""
     header = prefix / "Include/vulkan/vulkan_core.h"
-    return ((prefix / "Bin/glslc.exe").is_file() and header.is_file()
-            and re.search(r"#define\s+VK_HEADER_VERSION\s+350\b", header.read_text()) is not None)
+    compiler = prefix / "Bin/glslc.exe"
+    return (compiler.is_file() and (prefix / "Lib/vulkan-1.lib").is_file() and header.is_file()
+            and re.search(r"#define\s+VK_HEADER_VERSION\s+350\b", header.read_text()) is not None
+            and (machine is None or pe_machine(compiler.read_bytes()) == machine))
 
 
 def run_installer(command: list[str]) -> None:
@@ -26,19 +30,30 @@ def run_installer(command: list[str]) -> None:
 
 
 def main() -> None:
-    """为 AMD64 发布构建准备 SDK 和独立的后端暂存目录。"""
-    work = Path(os.environ["RUNNER_TEMP"]) / "mineru-gpu-build"
-    stage = Path(os.environ["MINERU_EXTRA_BACKENDS_DIR"])
+    """按架构安装固定 SDK；ARM64 仅构建 Vulkan，AMD64 额外准备 SYCL。"""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--arch", choices=("AMD64", "ARM64"), default="AMD64")
+    args = parser.parse_args()
+    arm64 = args.arch == "ARM64"
+    machine = 0xAA64 if arm64 else 0x8664
+    work = Path(os.environ["RUNNER_TEMP"]) / ("mineru-gpu-build-arm64" if arm64 else "mineru-gpu-build")
     work.mkdir(parents=True, exist_ok=True)
     vulkan = Path(os.environ["VULKAN_SDK"])
-    if vulkan_ready(vulkan) and stage_matches(stage, "sycl"):
+    stage = None if arm64 else Path(os.environ["MINERU_EXTRA_BACKENDS_DIR"])
+    if vulkan_ready(vulkan, machine) and (arm64 or stage_matches(stage, "sycl")):
         print("Using cached Vulkan SDK and independently built GPU MODULEs")
         return
-    if not vulkan_ready(vulkan):
+    if not vulkan_ready(vulkan, machine):
         installer = work / "vulkan_sdk.exe"
-        download("https://sdk.lunarg.com/sdk/download/1.4.350.0/windows/vulkan_sdk.exe", installer)
+        sdk_platform = "warm" if arm64 else "windows"
+        download(f"https://sdk.lunarg.com/sdk/download/1.4.350.0/{sdk_platform}/vulkan_sdk.exe", installer)
         run_installer([str(installer), "-t", str(vulkan), "--accept-licenses", "--default-answer", "--confirm-command", "install"])
         installer.unlink()
+    if not vulkan_ready(vulkan, machine):
+        raise RuntimeError(f"Vulkan SDK 1.4.350.0 is missing or has the wrong architecture for {args.arch}")
+    if arm64:
+        print("Native ARM64 Vulkan SDK ready; no oneAPI runtime is required")
+        return
     installer = work / "oneapi.exe"
     download("https://registrationcenter-download.intel.com/akdlm/IRC_NAS/0cb67a0d-67f6-410b-868b-f4a0a17ff0cf/intel-oneapi-toolkit-2026.1.1.32_offline.exe", installer)
     extracted = work / "oneapi-extracted"

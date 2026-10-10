@@ -10,7 +10,7 @@ on:
         description: 'Platforms to validate (tag releases always build all)'
         type: choice
         default: all
-        options: [all, linux, windows, macos, windows-runtime]
+        options: [all, linux, windows, windows-arm64, macos, windows-runtime]
       runtime_run_id:
         description: 'Existing build run for the Windows runtime diagnostic only'
         required: false
@@ -219,7 +219,7 @@ jobs:
           path: wheelhouse/*.whl
 
   build_windows_arm64:
-    if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'windows'
+    if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'windows' || inputs.platform == 'windows-arm64'
     runs-on: windows-11-arm
     steps:
       - uses: actions/checkout@v4
@@ -232,12 +232,29 @@ jobs:
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: arm64
+      - uses: actions/cache@v4
+        with:
+          path: C:/VulkanSDK-ARM64
+          key: gpu-windows-arm64-vulkan-1.4.350.0-${{ hashFiles('tools/setup_windows_gpu.py', 'tools/windows_pe.py') }}
+          restore-keys: gpu-windows-arm64-vulkan-1.4.350.0-
       - name: Install cibuildwheel
         run: pip install cibuildwheel==4.3.0
-      - name: Build wheels (Windows ARM64, CPU)
-        # ggml-cpu rejects MSVC on ARM — use clang-cl via the override
-        # block in pyproject.toml. Vulkan is skipped on ARM64.
-        run: cibuildwheel --output-dir wheelhouse --archs ARM64
+      - name: Build wheels (Windows ARM64, CPU+Vulkan)
+        # ggml-cpu 的 ARM 实现需要 clang-cl；固定 SDK 的工具与链接库均使用原生 ARM64。
+        run: |
+          if ("${{ inputs.platform }}" -eq "windows-arm64") {
+            # 增量验证只检查新 MODULE 与回退；完整发布仍运行公共 API 回归。
+            $env:CIBW_TEST_COMMAND = 'python {project}/tools/windows_vulkan_smoke.py'
+          }
+          cibuildwheel --output-dir wheelhouse --archs ARM64
+      - name: Audit ARM64 wheel architecture and stable ABI
+        run: |
+          pip install packaging abi3audit
+          python tools/verify_wheels.py wheelhouse --allow-subset
+          Get-ChildItem wheelhouse/*.whl | ForEach-Object {
+            abi3audit --strict $_.FullName
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
       - uses: actions/upload-artifact@v4
         with:
           name: wheels-windows-arm64

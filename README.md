@@ -50,7 +50,7 @@ source or use a validated candidate to try the new backends.
 | Linux x86_64 | `manylinux_2_28_x86_64` | CPU, Vulkan, SYCL | Driver; Vulkan loader; matching oneAPI runtime when used |
 | Linux aarch64 | `manylinux_2_28_aarch64` | CPU, Vulkan | Driver; Vulkan loader |
 | Windows AMD64 | `win_amd64` | CPU, Vulkan, SYCL | Driver; SYCL runtime is bundled |
-| Windows ARM64 | `win_arm64` | CPU | None |
+| Windows ARM64 | `win_arm64` | CPU, Vulkan | Native ARM64 GPU driver and Vulkan loader |
 | macOS arm64 | `macosx_14_0_arm64` | CPU, Metal | macOS 14+ |
 | macOS x86_64 | `macosx_14_0_x86_64` | CPU | macOS 14+ |
 
@@ -290,6 +290,15 @@ On Windows x86_64, MSVC compiles ggml-cpu directly. On Windows ARM64,
 ```bash
 set SKBUILD_CMAKE_ARGS=-DCMAKE_C_COMPILER=clang-cl;-DCMAKE_CXX_COMPILER=clang-cl
 ```
+
+Windows ARM64 wheels also include a native Vulkan MODULE. Install an ARM64
+GPU driver that provides Vulkan; missing loader or devices allow CPU fallback.
+The Vulkan SDK is only required when building from source. Use the native
+[Windows Arm SDK](https://vulkan.lunarg.com/doc/view/1.4.350.0/windows/getting_started.html)
+and add `-DGGML_VULKAN=ON` to the ARM64 build arguments above.
+Its native `Lib/vulkan-1.lib` and `Bin/glslc.exe` must target ARM64.
+The release build pins SDK 1.4.350.0 and audits every DLL, executable and Python
+extension for ARM64 machine code. It does not bundle a GPU driver or SYCL.
 
 The `__init__.py` adds `bin/` to the DLL search path via
 `os.add_dll_directory()` — Windows has no RPATH (`$ORIGIN`), so this is

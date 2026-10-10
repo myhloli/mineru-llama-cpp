@@ -15,7 +15,7 @@ CMake 强制关闭 CUDA，发布审计拒绝遗留 CUDA MODULE、manifest 和运
 | manylinux_2_28 x86_64 | CPU、Vulkan、SYCL |
 | manylinux_2_28 aarch64 | CPU、Vulkan |
 | Windows AMD64 | CPU、Vulkan、SYCL |
-| Windows ARM64 | CPU |
+| Windows ARM64 | CPU、Vulkan |
 | macOS 14+ arm64 | CPU、Metal |
 | macOS 14+ x86_64 | CPU |
 
@@ -27,6 +27,19 @@ CMake 强制关闭 CUDA，发布审计拒绝遗留 CUDA MODULE、manifest 和运
 - macOS 保留现有 llama.cpp Metal/CPU。MLX 是不同推理实现，本轮没有迁移至 MLX。
 - 自动模式独显优先，同等级 SYCL/Metal/Vulkan；一个引擎选择一个后端，投影器保持一致。
 - 零层卸载强制 CPU；显式请求不可用后端报错；推理开始后的错误不自动重跑。
+
+## Windows ARM64 Vulkan 增量
+
+在已通过的六平台候选基础上，仅替换 Windows ARM64 wheel，增加 Vulkan MODULE。
+固定使用 LunarG Vulkan SDK 1.4.350.0 的 Windows Arm 安装包，原生 ARM64 shader 工具及链接库；
+CPU 保留 clang-cl 和无 OpenMP 配置。所有 Windows DLL、EXE、PYD 都审计 PE Machine，防止混入 x64。
+Vulkan loader 与驱动由用户的原生 ARM64 显卡驱动提供，没有新增内置加速运行库。
+
+本轮手动筛选 `windows-arm64`，仅复核新 wheel 在 Python 3.10–3.14 的 MODULE 加载、
+设备枚举与缺失 loader 的 CPU 回退，并严格审计 abi3；其他五个平台及已有 API 回归复用前轮结果。
+缺失 loader 检查只修改临时 MODULE 副本的 DLL 导入名称，不修改安装包。
+实际 Windows ARM64 GPU 推理仍须对应硬件、Q8_0 模型、视觉投影和页面提取验证。
+增量构建与候选归档结果待本轮 CI 完成后补入。
 
 ## 本地验证
 

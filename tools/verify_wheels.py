@@ -5,12 +5,13 @@ import json
 from pathlib import Path
 import zipfile
 from packaging.utils import parse_wheel_filename
+from windows_pe import pe_machine
 
 PLATFORMS = {
     "manylinux_2_28_x86_64": {"cpu", "vulkan", "sycl"},
     "manylinux_2_28_aarch64": {"cpu", "vulkan"},
     "win_amd64": {"cpu", "vulkan", "sycl"},
-    "win_arm64": {"cpu"},
+    "win_arm64": {"cpu", "vulkan"},
     "macosx_14_0_arm64": {"cpu", "metal"},
     "macosx_14_0_x86_64": {"cpu"},
 }
@@ -39,6 +40,15 @@ def verify(wheels: list[Path], require_all: bool = True) -> list[dict]:
         seen.add(platform)
         with zipfile.ZipFile(wheel) as archive:
             names = archive.namelist()
+            machines = {}
+            if platform.startswith("win_"):
+                expected_machine = 0xAA64 if platform == "win_arm64" else 0x8664
+                for item in names:
+                    if item.endswith((".dll", ".exe", ".pyd")):
+                        machine = pe_machine(archive.read(item))
+                        if machine != expected_machine:
+                            raise ValueError(f"Wrong PE architecture 0x{machine:04x}: {item} in {wheel.name}")
+                        machines[item] = f"0x{machine:04x}"
             extensions = [item for item in names if Path(item).name.startswith("_mineru_llama_cpp") and item.endswith((".so", ".pyd"))]
             if len(extensions) != 1 or (platform.startswith("win_") and Path(extensions[0]).name not in {"_mineru_llama_cpp.pyd", "_mineru_llama_cpp.abi3.pyd"}) or (not platform.startswith("win_") and not extensions[0].endswith(".abi3.so")):
                 raise ValueError(f"Expected exactly one stable-ABI extension: {extensions}")
@@ -66,7 +76,7 @@ def verify(wheels: list[Path], require_all: bool = True) -> list[dict]:
                     raise ValueError(f"CUDA backend/runtime is not supported: {item}")
                 if platform.startswith("manylinux") and basename.startswith(EXTERNAL_LINUX_PREFIXES):
                     raise ValueError(f"Linux GPU runtime must remain external: {item}")
-        reports.append({"wheel": wheel.name, "platform": platform, "required_backends": sorted(PLATFORMS[platform]), "extension": extensions[0]})
+        reports.append({"wheel": wheel.name, "platform": platform, "required_backends": sorted(PLATFORMS[platform]), "extension": extensions[0], "pe_machines": machines})
     if not wheels or len(versions) != 1 or len(commits) > 1:
         raise ValueError("Wheel set is empty or combines different versions/llama.cpp commits")
     if require_all and seen != set(PLATFORMS):
