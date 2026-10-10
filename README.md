@@ -133,6 +133,11 @@ applies `wheel_glob` as a literal shell argument, audits the selected subset,
 and transfers only those wheels to the publishing job. Both paths verify
 the source run's workflow, repository and successful completion before
 downloading artifacts.
+The first audit checks out the source run's exact `head_sha` and applies its
+build policy. A separate job checks out the publishing workflow's own commit
+for publishing tests, current distribution rules and strict ABI auditing.
+Historical runs do not need to contain newer publishing tests; their wheels
+must still satisfy the current CUDA/SYCL exclusions before uploading.
 
 ## Install (development)
 

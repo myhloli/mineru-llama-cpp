@@ -24,7 +24,7 @@ permissions:
   actions: read   # download-artifact@v4 needs this to fetch artifacts cross-run
 
 jobs:
-  prepare_wheels:
+  verify_build_wheels:
     # 普通分支、失败构建和 fork 构建不会自动发布；手动入口仍可验证产物。
     if: >-
       github.event_name == 'workflow_dispatch' ||
@@ -35,11 +35,6 @@ jobs:
        startsWith(github.event.workflow_run.head_branch, 'v'))
     runs-on: ubuntu-latest
     steps:
-      # 先 checkout，再下载产物，避免源码清理删除已下载的 dist 目录。
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
       - name: Verify source build run
         id: source
         env:
@@ -73,7 +68,21 @@ jobs:
                  run.id !== context.payload.workflow_run.id)) {
               throw new Error('Automatic publishing requires the triggering version-tag build');
             }
+            // 仅接受完整提交 SHA，避免分支移动或不合法的 ref 改变构建校验代码。
+            if (typeof run.head_sha !== 'string' || !/^[0-9a-f]{40}$/i.test(run.head_sha)) {
+              throw new Error('Source build must have a full commit SHA');
+            }
             core.setOutput('run_id', String(runId));
+            core.setOutput('head_sha', run.head_sha);
+      - name: Checkout build revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.source.outputs.head_sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # checkout 完成后再下载，避免源码清理删除产物。
       - uses: actions/download-artifact@v4
         with:
           pattern: wheels-*
@@ -95,6 +104,39 @@ jobs:
           echo "Wheels selected for upload:"
           ls -la dist/
 
+      - name: Verify wheels against build policy
+        env:
+          PUBLISH_MODE: ${{ github.event_name }}
+        run: |
+          pip install packaging
+          if [ "$PUBLISH_MODE" = "workflow_dispatch" ]; then
+            python tools/verify_wheels.py dist --allow-subset
+          else
+            python tools/verify_wheels.py dist
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: build-verified-wheels
+          path: dist/*.whl
+          if-no-files-found: error
+
+  prepare_wheels:
+    needs: [verify_build_wheels]
+    runs-on: ubuntu-latest
+    steps:
+      # 发布测试及现行规则使用本次发布工作流的固定提交，在独立任务中执行。
+      - name: Checkout publishing policy
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: build-verified-wheels
+          path: dist
       - name: Verify selected stable-ABI wheels
         env:
           PUBLISH_MODE: ${{ github.event_name }}

@@ -3,8 +3,10 @@ import fnmatch
 import json
 import os
 from pathlib import Path
+import shlex
 import shutil
 import subprocess
+import sys
 
 import pytest
 import yaml
@@ -33,7 +35,7 @@ def load_workflow(filename):
 def test_wheel_filter_treats_input_as_data(tmp_path, pattern, mode):
     """执行真实筛选步骤，验证手动输入不会执行代码且自动发布固定选择全部 abi3 wheel。"""
     workflow = load_workflow("publish-wheels.yml")
-    step = next(step for step in workflow["jobs"]["prepare_wheels"]["steps"]
+    step = next(step for step in workflow["jobs"]["verify_build_wheels"]["steps"]
                 if step.get("name") == "Keep only wheels matching the pattern")
     names = [
         "mineru_llama_cpp-0.1.2-cp310-abi3-win_amd64.whl",
@@ -59,11 +61,15 @@ def test_wheel_filter_treats_input_as_data(tmp_path, pattern, mode):
 
 
 @pytest.mark.parametrize("mode", ["workflow_dispatch", "workflow_run"])
+@pytest.mark.parametrize("job_name, step_name", [
+    ("verify_build_wheels", "Verify wheels against build policy"),
+    ("prepare_wheels", "Verify selected stable-ABI wheels"),
+])
 @pytest.mark.skipif(os.name == "nt", reason="Linux 发布脚本需要 POSIX Bash")
-def test_automatic_verification_requires_all_platforms(tmp_path, mode):
-    """用记录参数的工具替身执行校验脚本，确认仅手动发布允许平台子集。"""
-    step = next(step for step in load_workflow("publish-wheels.yml")["jobs"]["prepare_wheels"]["steps"]
-                if step.get("name") == "Verify selected stable-ABI wheels")
+def test_automatic_verification_requires_all_platforms(tmp_path, mode, job_name, step_name):
+    """两阶段均执行真实校验脚本，确认仅手动发布允许平台子集。"""
+    step = next(step for step in load_workflow("publish-wheels.yml")["jobs"][job_name]["steps"]
+                if step.get("name") == step_name)
     commands = tmp_path / "commands"
     commands.mkdir()
     calls = tmp_path / "python-calls"
@@ -88,8 +94,19 @@ def test_automatic_verification_requires_all_platforms(tmp_path, mode):
 
 
 def test_manual_publish_preserves_and_transfers_prepared_wheels():
-    """源码清理先于下载，发布任务只获取当前运行中校验后上传的 wheel 集合。"""
+    """构建校验、现行发布校验与 OIDC 上传逐阶段传递产物，源码清理均先于下载。"""
     jobs = load_workflow("publish-wheels.yml")["jobs"]
+    build_steps = jobs["verify_build_wheels"]["steps"]
+    build_checkout = next(index for index, step in enumerate(build_steps)
+                          if step.get("uses", "").startswith("actions/checkout@"))
+    build_download = next(index for index, step in enumerate(build_steps)
+                          if step.get("uses", "").startswith("actions/download-artifact@"))
+    build_verify = next(index for index, step in enumerate(build_steps)
+                        if step.get("name") == "Verify wheels against build policy")
+    build_upload = next(index for index, step in enumerate(build_steps)
+                        if step.get("uses", "").startswith("actions/upload-artifact@"))
+    assert build_checkout < build_download < build_verify < build_upload
+    assert jobs["prepare_wheels"]["needs"] == ["verify_build_wheels"]
     steps = jobs["prepare_wheels"]["steps"]
     checkout = next(index for index, step in enumerate(steps)
                     if step.get("uses", "").startswith("actions/checkout@"))
@@ -100,6 +117,11 @@ def test_manual_publish_preserves_and_transfers_prepared_wheels():
     upload = next(index for index, step in enumerate(steps)
                   if step.get("uses", "").startswith("actions/upload-artifact@"))
     assert checkout < download < verify < upload
+    build_artifact = build_steps[build_upload]["with"]
+    assert build_artifact["path"] == "dist/*.whl"
+    assert build_artifact["if-no-files-found"] == "error"
+    assert steps[download]["with"]["name"] == build_artifact["name"]
+    assert "run-id" not in steps[download]["with"]
     artifact = steps[upload]["with"]
     assert artifact["path"] == "dist/*.whl"
     assert artifact["if-no-files-found"] == "error"
@@ -107,6 +129,86 @@ def test_manual_publish_preserves_and_transfers_prepared_wheels():
     assert publishing_download["name"] == artifact["name"]
     assert publishing_download["path"] == "dist"
     assert "run-id" not in publishing_download
+
+
+def test_build_and_publishing_checks_pin_separate_revisions():
+    """来源校验先于构建 SHA checkout，发布测试与当前规则使用独立任务中的发布提交。"""
+    jobs = load_workflow("publish-wheels.yml")["jobs"]
+    build_steps = jobs["verify_build_wheels"]["steps"]
+    metadata = next(index for index, step in enumerate(build_steps) if step.get("id") == "source")
+    checkout = next(index for index, step in enumerate(build_steps)
+                    if step.get("uses", "").startswith("actions/checkout@"))
+    assert metadata < checkout
+    assert build_steps[checkout]["with"]["ref"] == "${{ steps.source.outputs.head_sha }}"
+    assert build_steps[checkout]["with"]["persist-credentials"] is False
+    assert all("tests/test_publish_workflows.py" not in step.get("run", "") for step in build_steps)
+    publisher_steps = jobs["prepare_wheels"]["steps"]
+    publisher_checkout = next(step for step in publisher_steps
+                              if step.get("uses", "").startswith("actions/checkout@"))
+    assert publisher_checkout["with"]["ref"] == "${{ github.sha }}"
+    assert publisher_checkout["with"]["persist-credentials"] is False
+    assert any("python -m pytest tests/test_publish_workflows.py" in step.get("run", "")
+               for step in publisher_steps)
+
+
+@pytest.mark.parametrize("legacy_module", [False, True])
+@pytest.mark.skipif(os.name == "nt", reason="Linux 发布脚本需要 POSIX Bash")
+def test_historical_build_without_publish_tests_still_obeys_current_policy(tmp_path, legacy_module):
+    """历史校验通过且没有新测试时仍能发布合规产物，旧规则放行的 SYCL 则被现行规则阻止。"""
+    from test_wheel_policy import make_wheel
+
+    source = tmp_path / "source"
+    publisher = tmp_path / "publisher"
+    commands = tmp_path / "commands"
+    for directory in (source / "tools", source / "dist", publisher / "tools", publisher / "tests", commands):
+        directory.mkdir(parents=True)
+    # 模拟不含新发布测试、允许历史模块的旧构建校验程序。
+    (source / "tools" / "verify_wheels.py").write_text(
+        '"""历史构建规则替身，用于验证当前发布规则独立执行。"""\n'
+        'from pathlib import Path\nPath("build-policy-ran").write_text("ok")\n')
+    extra = {"mineru_llama_cpp/bin/ggml-sycl.dll": b"legacy"} if legacy_module else None
+    make_wheel(source / "dist", "macosx_14_0_arm64", {"cpu", "metal"}, extra)
+    repository = Path(__file__).resolve().parents[1]
+    for filename in ("verify_wheels.py", "windows_pe.py", "wheel_policy.py"):
+        shutil.copyfile(repository / "tools" / filename, publisher / "tools" / filename)
+    # 此测试只验证两个版本的调用和分发边界，依赖安装及原生 ABI 审计用工具替身隔离。
+    scripts = {
+        "pip": '#!/bin/sh\nexit 0\n',
+        "python": '#!/bin/sh\nexec ' + shlex.quote(sys.executable) + ' "$@"\n',
+        "abi3audit": '#!/bin/sh\ntouch abi-audit-ran\n',
+    }
+    for name, content in scripts.items():
+        executable = commands / name
+        executable.write_text(content)
+        executable.chmod(0o755)
+    (publisher / "tests" / "test_publish_workflows.py").write_text(
+        'from pathlib import Path\n'
+        'def test_publishing_revision():\n'
+        '    """发布测试使用独立发布版本，不依赖历史源码中的测试文件。"""\n'
+        '    assert Path(__file__).resolve().parents[1].name == "publisher"\n')
+    environment = os.environ.copy()
+    environment.update(PATH=str(commands) + os.pathsep + environment["PATH"], PUBLISH_MODE="workflow_dispatch")
+    jobs = load_workflow("publish-wheels.yml")["jobs"]
+    source_step = next(step for step in jobs["verify_build_wheels"]["steps"]
+                       if step.get("name") == "Verify wheels against build policy")
+    result = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", source_step["run"]],
+                            cwd=source, env=environment, capture_output=True, text=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (source / "build-policy-ran").exists()
+    assert not (source / "tests" / "test_publish_workflows.py").exists()
+    shutil.copytree(source / "dist", publisher / "dist")
+    publisher_step = next(step for step in jobs["prepare_wheels"]["steps"]
+                          if step.get("name") == "Verify selected stable-ABI wheels")
+    result = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", publisher_step["run"]],
+                            cwd=publisher, env=environment, capture_output=True, text=True)
+    assert not (publisher / "build-policy-ran").exists()
+    if legacy_module:
+        assert result.returncode != 0
+        assert "SYCL backend/runtime is not supported" in result.stdout + result.stderr
+        assert not (publisher / "abi-audit-ran").exists()
+    else:
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert (publisher / "abi-audit-ran").exists()
 
 
 def test_publishing_uses_one_isolated_oidc_workflow():
@@ -146,7 +248,7 @@ def test_automatic_publish_requires_successful_upstream_tag_build():
     triggers = workflow.get("on", workflow.get(True))  # PyYAML 的 YAML 1.1 将 on 解析为布尔值。
     assert triggers["workflow_run"] == {"workflows": ["Build wheels"], "types": ["completed"]}
     assert "workflow_dispatch" in triggers
-    prepare = workflow["jobs"]["prepare_wheels"]
+    prepare = workflow["jobs"]["verify_build_wheels"]
     for required in (
         "github.repository == 'opendatalab/mineru-llama-cpp'",
         "github.event.workflow_run.conclusion == 'success'",
@@ -167,6 +269,7 @@ def test_automatic_publish_requires_successful_upstream_tag_build():
 def source_run():
     """提供成功的同仓库标签构建元数据，供自动及手动入口验证使用。"""
     return {"id": 123, "path": ".github/workflows/build-wheels.yml",
+            "head_sha": "a" * 40,
             "repository": {"full_name": "opendatalab/mineru-llama-cpp"},
             "head_repository": {"full_name": "opendatalab/mineru-llama-cpp"},
             "status": "completed", "conclusion": "success", "event": "push", "head_branch": "v0.2.0"}
@@ -177,7 +280,7 @@ def run_source_check(source_run, event_name="workflow_dispatch", run_id="123", t
     node = shutil.which("node")
     if node is None:
         pytest.skip("GitHub Actions 脚本验证需要 Node.js")
-    step = next(step for step in load_workflow("publish-wheels.yml")["jobs"]["prepare_wheels"]["steps"]
+    step = next(step for step in load_workflow("publish-wheels.yml")["jobs"]["verify_build_wheels"]["steps"]
                 if step.get("id") == "source")
     payload = {"script": step["with"]["script"], "run": source_run, "run_id": run_id,
                "context": {"repo": {"owner": "opendatalab", "repo": "mineru-llama-cpp"},
@@ -215,7 +318,7 @@ def test_source_run_accepts_successful_builds(source_run, event_name, source_eve
     source_run["path"] += path_suffix
     result = run_source_check(source_run, event_name)
     assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout) == {"run_id": "123"}
+    assert json.loads(result.stdout) == {"run_id": "123", "head_sha": "a" * 40}
 
 
 @pytest.mark.parametrize("changes", [
@@ -254,3 +357,12 @@ def test_source_run_id_is_validated_as_data(source_run, run_id):
     result = run_source_check(source_run, run_id=run_id)
     assert result.returncode != 0
     assert "Build run ID must be a positive integer" in result.stderr
+
+
+@pytest.mark.parametrize("head_sha", [None, "", "main", "a" * 39, "g" * 40, "a" * 40 + "; echo injected"])
+def test_source_revision_requires_full_commit_sha(source_run, head_sha):
+    """非法或可移动的来源 ref 不能作为构建校验版本，也不能进入 checkout 步骤。"""
+    source_run["head_sha"] = head_sha
+    result = run_source_check(source_run)
+    assert result.returncode != 0
+    assert "Source build must have a full commit SHA" in result.stderr
