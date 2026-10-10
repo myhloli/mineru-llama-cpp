@@ -103,8 +103,23 @@ source /opt/intel/oneapi/setvars.sh
 python your_script.py
 ```
 
+Runtime-only components are available through Intel's package repository;
+the matching component families are DPC++/C++ runtime 2026.1, oneMKL 2026.1,
+oneDNN 2026.0 and TBB 2023.1. See the
+[official component list](https://oneapi-src.github.io/oneapi-ci/) and
+[Linux installation guide](https://www.intel.com/content/www/us/en/docs/oneapi-toolkit/installation-guide-linux/latest/overview.html).
+The toolkit version and individual library versions differ.
+The module requires `libsycl.so.9`, `libmkl_sycl_blas.so.6`, oneMKL CPU libraries
+with `.so.3`, `libdnnl.so.3`, `libtbb.so.12`, `libze_loader.so.1`, and Intel
+compiler libraries including `libimf.so`, `libsvml.so`, `libintlc.so.5` and
+`libirng.so`. These libraries must be visible through `LD_LIBRARY_PATH` or
+the system loader cache; installation alone does not set a running Python
+process's environment. Inspect the module with `ldd` when a dependency is missing.
+
 Intel GPU acceleration also requires the Intel GPU driver/Level Zero stack.
-Without that runtime, automatic selection uses Vulkan or CPU.
+Follow [Intel's GPU driver guide](https://dgpu-docs.intel.com/driver/installation.html)
+for the target distribution and GPU. Without that runtime, automatic selection
+uses Vulkan or CPU.
 
 On Windows, SYCL requires an Intel GPU driver; its user-space runtime
 libraries are already in the wheel. No CUDA toolkit or CUDA runtime is used.
