@@ -73,6 +73,9 @@ def main() -> None:
     # Vulkan loader 由显卡驱动提供，无显卡驱动的诊断机器可跳过该可选 MODULE。
     if any(item["load_error"] for name, item in report.items() if name != "ggml-vulkan.dll"):
         raise RuntimeError("Packaged DLL loading failed; see runtime-diagnostics.json")
+    # 用全新进程验证原始 wheel 的后端初始化和无设备 CPU 回退，不依赖本次预加载句柄。
+    subprocess.run([sys.executable, str(Path(__file__).with_name("wheel_smoke.py")),
+                    "--without-external-gpu-runtime"], check=True)
 
 
 if __name__ == "__main__":
