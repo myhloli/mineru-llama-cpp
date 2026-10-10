@@ -1,7 +1,4 @@
 import os
-import ctypes
-import json
-import logging
 from pathlib import Path
 
 # Windows has no RPATH ($ORIGIN / @loader_path). The .pyd's DLL dependencies
@@ -28,6 +25,9 @@ _sycl_runtime_handles: list = []
 
 def _preload_windows_sycl_runtime(package: Path) -> None:
     """预加载内置运行库，兼容 Intel DLL 内部使用传统搜索路径的加载行为。"""
+    import ctypes
+    import json
+    import logging
     manifest = package / "bin/sycl-build.json"
     if not manifest.is_file():
         return

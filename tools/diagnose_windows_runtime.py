@@ -16,14 +16,18 @@ def main() -> None:
     import pefile
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory", type=Path)
+    parser.add_argument("--use-current-bootstrap", action="store_true",
+                        help="用当前 __init__.py 复核加载修复；默认检查原始 wheel")
     args = parser.parse_args()
     wheels = list(args.directory.glob("*win_amd64.whl"))
     if len(wheels) != 1:
         raise RuntimeError(f"Expected one Windows AMD64 wheel, got {wheels}")
     subprocess.run([sys.executable, "-m", "pip", "install", str(wheels[0])], check=True)
-    # 使用当前源码的 Windows 启动代码复核已有二进制，无需重新编译 GPU MODULE。
-    installed = importlib.metadata.distribution("mineru-llama-cpp").locate_file("mineru_llama_cpp/__init__.py")
-    shutil.copy2(Path(__file__).resolve().parents[1] / "src/mineru_llama_cpp/__init__.py", installed)
+    if args.use_current_bootstrap:
+        # 修复试验必须显式标记，不能把覆盖启动代码后的结果算作原始 wheel 验证。
+        installed = importlib.metadata.distribution("mineru-llama-cpp").locate_file("mineru_llama_cpp/__init__.py")
+        shutil.copy2(Path(__file__).resolve().parents[1] / "src/mineru_llama_cpp/__init__.py", installed)
+        print("Diagnostic override: current source __init__.py replaces the installed wheel bootstrap", flush=True)
     # 保持与安装测试相同的搜索路径，禁止构建工具链掩盖缺失 DLL。
     os.environ.pop("ONEAPI_ROOT", None)
     os.environ["PATH"] = os.pathsep.join(p for p in os.environ.get("PATH", "").split(os.pathsep)
