@@ -23,6 +23,11 @@ def main() -> None:
     from mineru_llama_cpp import _mineru_llama_cpp as native
 
     package = Path(mineru_llama_cpp.__file__).resolve().parent
+    if sys.platform == "win32" and (package / "bin/ggml-sycl.dll").is_file():
+        # 直接由 Windows 加载打包 MODULE，验证 DLL 闭包；无需初始化驱动或执行 GPU 推理。
+        # DLL_LOAD_DIR 与 DEFAULT_DIRS 使依赖从 wheel 的 bin 和注册目录解析。
+        sycl_module = ctypes.WinDLL(str(package / "bin/ggml-sycl.dll"), winmode=0x100 | 0x1000)
+        print("Packaged SYCL MODULE and runtime DLLs loaded successfully")
     name = "ggml.dll" if sys.platform == "win32" else "libggml.0.dylib" if sys.platform == "darwin" else "libggml.so.0"
     # Windows 的共享 DLL 按 RUNTIME 安装到 bin，Unix 的共享库安装到 lib。
     library_path = next((package / directory / name for directory in ("lib", "bin")
