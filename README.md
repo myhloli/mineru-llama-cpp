@@ -47,9 +47,9 @@ source or use a validated candidate to try the new backends.
 
 | Platform | Wheel platform tag | Packaged backends | External GPU requirements |
 |---|---|---|---|
-| Linux x86_64 | `manylinux_2_28_x86_64` | CPU, Vulkan, SYCL | Driver; Vulkan loader; matching oneAPI runtime when used |
+| Linux x86_64 | `manylinux_2_28_x86_64` | CPU, Vulkan | Driver; Vulkan loader |
 | Linux aarch64 | `manylinux_2_28_aarch64` | CPU, Vulkan | Driver; Vulkan loader |
-| Windows AMD64 | `win_amd64` | CPU, Vulkan, SYCL (ARL-H AOT/FP16) | Driver; SYCL runtime is bundled |
+| Windows AMD64 | `win_amd64` | CPU, Vulkan | Driver; Vulkan loader |
 | Windows ARM64 | `win_arm64` | CPU, Vulkan | Native ARM64 GPU driver and Vulkan loader |
 | macOS arm64 | `macosx_14_0_arm64` | CPU, Metal | macOS 14+ |
 | macOS x86_64 | `macosx_14_0_x86_64` | CPU | macOS 14+ |
@@ -59,16 +59,14 @@ Alpine/musllinux wheels are no longer built. Linux CPU wheels bundle
 (AVX2/FMA/BMI2/F16C). The glibc tag does not describe CPU instruction support.
 AMD RDNA3/4 GPUs use Vulkan, without a ROCm installation.
 
-Vulkan and SYCL are optional dynamically loaded modules. Missing runtime
-libraries or devices leave Vulkan/CPU available and do not prevent importing
-the Python package. CUDA is disabled in all builds and cannot be selected.
-Windows packages bundle the oneAPI SYCL, oneMKL, oneDNN, and supporting runtime
-DLLs plus the Level Zero loader and license notices. GPU drivers are always
-provided by the system. NVIDIA and AMD GPUs use Vulkan when available.
-macOS keeps the existing llama.cpp Metal/CPU implementation.
+Vulkan is an optional dynamically loaded module. Missing runtime libraries
+or devices leave CPU available and do not prevent importing the Python
+package. CUDA and SYCL are disabled in all builds and cannot be selected.
+GPU drivers and the Vulkan loader are provided by the system; GPU runtimes
+are not bundled. macOS keeps the existing llama.cpp Metal/CPU implementation.
 
 Every wheel is checked outside the checkout, including a child process with
-external oneAPI search paths removed, and must load its packaged CPU
+external GPU SDK search paths removed, and must load its packaged CPU
 backend. Strict ABI auditing verifies the Python 3.10 floor. macOS also audits
 Mach-O deployment targets and dependencies. CPU-only CI does not establish
 GPU execution or full MinerU extraction correctness; device-specific evidence
@@ -82,58 +80,30 @@ Set `MINERU_LLAMA_CPP_BACKEND` before constructing an engine:
 MINERU_LLAMA_CPP_BACKEND=auto python your_script.py
 ```
 
-Values: `auto` (default), `cpu`, `sycl`, `vulkan`, `metal`.
-Automatic selection prefers discrete GPUs over integrated GPUs, then SYCL,
-Metal, and Vulkan within the same device class. Each engine selects one
+Values: `auto` (default), `cpu`, `vulkan`, `metal`.
+Automatic selection prefers discrete GPUs over integrated GPUs, then Metal
+and Vulkan within the same device class. Each engine selects one
 backend and may use multiple devices from it; its model and multimodal
 projector use that backend.
 `n_gpu_layers=0` forces CPU. Explicitly requesting an unavailable backend
-raises an error. Errors after inference starts are surfaced without retrying
+raises an error. Removed `sycl` and `cuda` values are invalid even with
+`n_gpu_layers=0`. Errors after inference starts are surfaced without retrying
 the request on another backend. Use `verbosity=LOG_LEVEL_INFO` to see the
 chosen backend/device, and `LOG_LEVEL_DEBUG` for native loading details.
 
 ### External runtimes
 
-For Linux SYCL, install oneAPI runtime libraries matching the 2026.1.1 build,
-including SYCL, oneMKL BLAS, oneDNN, TBB and their dependencies. Activate the
-installed oneAPI environment before starting Python, such as:
+Vulkan requires a GPU driver and Vulkan loader matching the system
+architecture. Linux needs `libvulkan.so.1`; Windows needs `vulkan-1.dll` from
+the GPU driver installation. The wheel does not include a Vulkan loader.
+Without a usable Vulkan device or loader, automatic selection falls back to
+CPU. Explicit `vulkan` selection raises an error when unavailable.
 
-```bash
-source /opt/intel/oneapi/setvars.sh
-python your_script.py
-```
-
-Runtime-only components are available through Intel's package repository;
-the matching component families are DPC++/C++ runtime 2026.1, oneMKL 2026.1,
-oneDNN 2026.0 and TBB 2023.1. See the
-[official component list](https://oneapi-src.github.io/oneapi-ci/) and
-[Linux installation guide](https://www.intel.com/content/www/us/en/docs/oneapi-toolkit/installation-guide-linux/latest/overview.html).
-The toolkit version and individual library versions differ.
-The module requires `libsycl.so.9`, `libmkl_sycl_blas.so.6`, oneMKL CPU libraries
-with `.so.3`, `libdnnl.so.3`, `libtbb.so.12`, `libze_loader.so.1`, and Intel
-compiler libraries including `libimf.so`, `libsvml.so`, `libintlc.so.5` and
-`libirng.so`. These libraries must be visible through `LD_LIBRARY_PATH` or
-the system loader cache; installation alone does not set a running Python
-process's environment. Inspect the module with `ldd` when a dependency is missing.
-
-Intel GPU acceleration also requires the Intel GPU driver/Level Zero stack.
-Follow [Intel's GPU driver guide](https://dgpu-docs.intel.com/driver/installation.html)
-for the target distribution and GPU. Without that runtime, automatic selection
-uses Vulkan or CPU.
-
-On Windows AMD64, this SYCL candidate supports Arrow Lake-H (`arl-h`,
-Arc 130T/140T) with native AOT kernels and FP16 defaults. Other Intel GPUs
-use Vulkan/CPU in automatic mode; explicitly selecting SYCL reports the
-architecture restriction. The Intel GPU driver is required; user-space
-runtime libraries are bundled. Linux SYCL retains FP32/JIT.
-See [the Arc comparison procedure](docs/windows-sycl-aot.md) for the retained
-FP32/JIT baseline, independent-process timings and per-page quality review.
-No CUDA toolkit or CUDA runtime is used.
-
-Release CI independently builds optional GPU modules using their respective
-compilers, stages only the new modules, and verifies their llama.cpp commit
-matches the core. The aggregate release check requires exactly six wheels.
-The macOS build still includes the Xcode 16.4 compatibility check.
+Release CI prepares a fixed Vulkan SDK and builds its backend together with
+the ggml core. No oneAPI toolkit, SYCL runtime or Level Zero SDK is used.
+The aggregate release check requires exactly six wheels and rejects legacy
+CUDA/SYCL modules and runtimes. The macOS build still includes the Xcode 16.4
+compatibility check.
 
 ## Install (development)
 

@@ -1,34 +1,69 @@
 # 六平台 abi3 与可选 GPU 后端验证记录
 
 实现分支：`codex/abi3-gpu-wheels`。源码版本保留 0.1.2，未发布新版本。
-llama.cpp 保持 `86a283532072722c5f3363d37d59a874d09fa99b`；原有两个补丁保留，
-新增可选后端初始化异常隔离、SYCL 设备适用性、SDK 头文件路径及初始化错误传播补丁。
+llama.cpp 保持 `86a283532072722c5f3363d37d59a874d09fa99b`；保留分词、Windows DLL 搜索和可选后端初始化异常隔离三个通用补丁；
+SYCL 设备适用性、SDK 路径、初始化错误传播及 Windows AOT 四个专用补丁已移除。
 
 ## 最新交付范围
 
 根据用户后续调整，所有平台移除 CUDA，取消 ARM64 CUDA / DGX Spark 专用设备代码目标。
 不再下载 CUDA 工具链，不打包 CUDA MODULE 或运行库，也不支持 `MINERU_LLAMA_CPP_BACKEND=cuda`。
-CMake 强制关闭 CUDA，发布审计拒绝遗留 CUDA MODULE、manifest 和运行库。
+随后移除 SYCL：源码构建及运行时选择均不再支持，不再下载 oneAPI 或 Level Zero SDK，
+也不再暂存、合包或预加载 SYCL MODULE / 运行库。CMake 强制关闭 CUDA/SYCL，
+发布审计拒绝两者的遗留 MODULE、manifest 和运行库，Linux ELF 审计拒绝 oneAPI 动态依赖。
+本轮仅修改源码、CI 配置及文档并在本机验证，未运行六平台 CI，未发布。
 
 | 平台 | 后端 |
 |---|---|
-| manylinux_2_28 x86_64 | CPU、Vulkan、SYCL |
+| manylinux_2_28 x86_64 | CPU、Vulkan |
 | manylinux_2_28 aarch64 | CPU、Vulkan |
-| Windows AMD64 | CPU、Vulkan、SYCL |
+| Windows AMD64 | CPU、Vulkan |
 | Windows ARM64 | CPU、Vulkan |
 | macOS 14+ arm64 | CPU、Metal |
 | macOS 14+ x86_64 | CPU |
 
 - 六个平台各一个 cp310-abi3 wheel，Python 3.10–3.14 复用同一产物安装测试。
 - Linux x86_64 保留原有 v3 指令集要求；glibc 下限为 2.28。
-- SYCL：oneAPI 2026.1.1，oneDNN、Graph 编译支持且 Graph 默认关闭；Windows AMD64 使用 ARL-H AOT/FP16，Linux x86_64 保持 FP32/JIT；固定构建 Level Zero 1.33.1，保证独显/集显分类。
-- Windows 内置 SYCL 依赖闭包、Level Zero loader 及许可；Linux 仅包含 SYCL MODULE，运行库由用户安装。
 - NVIDIA 和 AMD RDNA3/4 使用 Vulkan；GPU 驱动始终由系统提供。
 - macOS 保留现有 llama.cpp Metal/CPU。MLX 是不同推理实现，本轮没有迁移至 MLX。
-- 自动模式独显优先，同等级 SYCL/Metal/Vulkan；一个引擎选择一个后端，投影器保持一致。
+- 自动模式独显优先，同等级 Metal/Vulkan；一个引擎选择一个后端，投影器保持一致。
 - 零层卸载强制 CPU；显式请求不可用后端报错；推理开始后的错误不自动重跑。
+- 支持配置仅为 auto/cpu/vulkan/metal；sycl/cuda 配置始终报错，包括零层卸载。
 
-## Windows AMD64 Arc 130T AOT/FP16 增量
+## 本轮本机验证（移除 SYCL）
+
+本机 Apple M4，Python 3.14.4。使用指定 `.venv4` 构建，在独立目录安装新 wheel，
+原先环境中的 `mineru-llama-cpp` 安装未被替换。最终候选为
+`build/no-sycl-validation/wheels/mineru_llama_cpp-0.1.2-cp310-abi3-macosx_14_0_arm64.whl`。
+
+| 检查 | 本轮结果 |
+|---|---|
+| 完整公开 API、模型、UTF-8、流式、并发、生命周期及分发规则回归 | 153 passed，305.94 s；`model-suite-final.log` / `model-suite-final.xml` |
+| 严格 abi3 审计 | 稳定 ABI 下限及实际符号均为 3.10，无不稳定或未来 ABI 符号；`abi3-audit.json` |
+| macOS 原生产物审计 | 11 个 Mach-O 均为 arm64，部署下限不超过 14.0，动态依赖和 RPATH 可迁移；`macos-audit.json` |
+| 源码构建禁用 SYCL | 显式传入 `GGML_SYCL=ON` 后，最终缓存仍为 OFF，构建图无 SYCL target |
+| 安装及 CPU 后端 | 仓库外新进程移除 GPU SDK 搜索路径后导入成功，打包 CPU 可用；`wheel-smoke-final.log` |
+| 旧真实产物拒绝 | 原 Linux x86_64、Windows AMD64 的 SYCL wheel 均被发布审计拒绝；`legacy-rejection.json` |
+| 同机真实页面兼容性 | 相同 Q8_0 模型、投影器及 demo1 第一页，一轮独立进程对比：文本、布局、完整 MinerU 提取结构完全一致；`compatibility/summary.json` |
+| Metal 和 CPU 生成 | 新 wheel 选择 MTL0，模型和投影均卸载 25/25 层；强制 CPU 时均为 0/25 层并完成文本生成；`compatibility/round-1/candidate/native.log` / `cpu/result.json` |
+
+候选大小为 6,340,456 B，SHA256 为
+`65d6633e5b4e11bfbe1fae76a4fb98f73733efc7670c119fc902a0af9362dfdf`。
+包内无 SYCL / oneAPI / Level Zero 文件及 SYCL 预加载代码。
+新策略与分发回归已加入 cibuildwheel 安装测试；六平台矩阵测试使用临时最小文件，
+用于检查标签、模块和拒绝规则，不作为跨平台构建或 GPU 执行证据。
+
+本轮日志与审计保存于 `build/no-sycl-validation/`，汇总为 `validation-summary.json`，旧候选及历史日志保留。
+真实页面对比仅用于本轮输出兼容性验收，不据此更新性能声明。
+首次回归中的两个新增构造用例误将异常类型预期为 RuntimeError；
+按既有绑定的 ValueError 映射修正后，以上最终完整回归全部通过。
+
+## 历史验证（移除 SYCL 前）
+
+以下记录描述此前含 SYCL 的候选及增量验证，不作为本次修改后的跨平台验证结论。
+旧产物与日志保留，不覆盖。
+
+### Windows AMD64 Arc 130T AOT/FP16 增量
 
 只替换 Windows AMD64 wheel；其他五包复用上一批原始文件。
 构建和缓存契约明确固定 `arl-h`、F16、备用 IR 排除、XMX subgroup=8、
@@ -79,7 +114,7 @@ AOT 不覆盖 oneDNN/oneMKL 的全部内部初始化，也不预设新 SYCL 必�
 显式使用 `fpmath_mode::strict`，F16 输入仍执行 F16 GEMM，同时保留 F32 覆盖和高精度路径。
 构建契约升级为 v2，拒绝没有这项保护的过渡模块。
 
-## Windows ARM64 Vulkan 增量
+### Windows ARM64 Vulkan 增量
 
 在已通过的六平台候选基础上，仅替换 Windows ARM64 wheel，增加 Vulkan MODULE。
 固定使用 LunarG Vulkan SDK 1.4.350.0 的 Windows Arm 安装包，原生 ARM64 shader 工具及链接库；
@@ -105,7 +140,7 @@ Python 扩展和公共核心库没有新增 GPU 运行库硬依赖，wheel 不�
 保存在 `previous-windows-arm64-cpu-only/`。增量证据为 `windows-arm64-vulkan.log`、
 `windows-arm64-vulkan-status.json`、`windows-arm64-vulkan-pe.json` 和 `delivery-provenance.json`。
 
-## 本地验证
+### 原本地验证
 
 本机 Apple M4、macOS 26.6.2。macOS ARM64 wheel 部署下限为 14.0。
 
@@ -168,34 +203,31 @@ Windows DLL 闭包检查排除系统 [ImageHlp](https://learn.microsoft.com/wind
 Linux 两架构修复后的 ELF 分别为 11 / 12 个，实际最高依赖为 GLIBC 2.28、
 GLIBCXX 3.4.21、CXXABI 1.3.9；完整报告保存在 `delivery-linux-*-audits/*.post.json`。
 
-## GPU 真机复核
+## 当前 GPU 真机复核
 
 | 设备 / 路径 | 状态 |
 |---|---|
 | Apple M4 / Metal | 自动选择 MTL0，模型和投影均卸载 25/25 层，完整页面提取通过 |
-| Intel GPU / SYCL（Windows/Linux） | 无对应本机硬件，待真机验证 |
+| Intel GPU / Vulkan（Windows/Linux） | 无对应本机硬件，待真机验证 |
 | NVIDIA / Vulkan | 无对应本机硬件，待真机验证 |
 | AMD RDNA3/4 / Vulkan | 无对应本机硬件，待真机验证 |
-| Windows ARM64 / Vulkan | MODULE 加载与无 loader 回退通过；CI 没有 GPU，实际模型与页面提取待真机验证 |
+| Windows ARM64 / Vulkan | 历史候选 MODULE 加载与无 loader 回退通过；本轮未重建，实际模型与页面提取待真机验证 |
 
 无 GPU 的 CI 验证可分发性、ABI、安装与 CPU 后端，不作为 GPU 推理执行证据。
 安装对应候选 wheel，准备相同 Q8_0 模型、mmproj 和真实页面图像，按 README 配置运行库。
 
 ```bash
-MINERU_LLAMA_CPP_BACKEND=sycl python tools/diagnose_metal.py \
+MINERU_LLAMA_CPP_BACKEND=vulkan python tools/diagnose_metal.py \
   --model /path/to/model-Q8_0.gguf --mmproj /path/to/mmproj-Q8_0.gguf \
   --image /path/to/page.png --extract --output /path/to/gpu-validation
 ```
 
-Vulkan 将环境变量改为 `vulkan`；Windows 在启动 Python 前设置同名环境变量。
+Metal 将环境变量改为 `metal`；Windows 在启动 Python 前设置同名环境变量。
 工具名称沿用 Metal 诊断脚本，但调用公开 Engine 和完整 MinerU 提取路径。
 检查 `native.log` 的所选设备、模型及投影卸载，保存输出、耗时和 RSS；
 额外运行流式、同步/异步、取消等待、关闭重建及内存稳定性回归。
 
-oneAPI 系统要求依据：[Intel oneAPI 2026 编译器发布与系统要求](https://www.intel.com/content/www/us/en/developer/articles/release-notes/oneapi-dpcpp/2026.html)。
-RHEL 8.10 在支持范围内，仍以最终包内全部 ELF 的 glibc、GLIBCXX、CXXABI 和动态依赖审计为发布门槛。
-
-## 最终候选包
+## 历史候选包（移除 SYCL 前）
 
 本地归档：`build/abi3-validation/mineru-llama-cpp-abi3-candidates.zip`。每包仅含一个 Python 扩展。
 

@@ -107,7 +107,7 @@ int read_n_ctx_train_from_gguf(const std::string & model_path) {
 
 // 说明已打包却未注册的后端，区分缺少运行库与没有可用设备的回退原因。
 void log_packaged_backend_status(const std::filesystem::path & directory) {
-    for (const char * name : {"sycl", "vulkan", "metal"}) {
+    for (const char * name : {"vulkan", "metal"}) {
 #if defined(_WIN32)
         const auto module = directory / (std::string("ggml-") + name + ".dll");
 #else
@@ -234,17 +234,7 @@ void select_engine_backend(common_params & params, int requested_layers) {
             ggml_backend_reg_name(ggml_backend_dev_backend_reg(device)));
         candidates.push_back({backend, type == GGML_BACKEND_DEVICE_TYPE_IGPU, index});
     }
-    std::vector<size_t> selected;
-    try {
-        selected = mineru_llama_cpp::select_backend_devices(candidates, requested, requested_layers == 0);
-    } catch (const std::runtime_error & error) {
-#if defined(MINERU_WINDOWS_SYCL_ARL_H_AOT_ONLY)
-        if (requested == "sycl")
-            throw std::runtime_error(std::string(error.what()) +
-                "; this Windows SYCL candidate supports Arrow Lake-H (arl-h, Arc 130T/140T) only");
-#endif
-        throw;
-    }
+    const auto selected = mineru_llama_cpp::select_backend_devices(candidates, requested, requested_layers == 0);
     params.devices.clear();
     for (size_t index : selected) {
         auto * device = ggml_backend_dev_get(index);

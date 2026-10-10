@@ -1,4 +1,4 @@
-"""下载固定版本的 Vulkan/oneAPI 构建组件。"""
+"""下载固定版本的 Vulkan 构建组件。"""
 from __future__ import annotations
 import os
 from pathlib import Path

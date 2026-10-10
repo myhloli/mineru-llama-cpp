@@ -19,6 +19,7 @@ compile_commands.json
 .cmake/
 .skbuild-info.json
 bin/
-# 可选 GPU MODULE 与 Vulkan 构建工具缓存，绝不进入源码或发布元数据。
-.gpu-stage/
+# Vulkan 构建工具缓存，绝不进入源码或发布元数据。
 .gpu-tools/
+# 历史 GPU 暂存目录继续忽略，防止旧产物混入 sdist。
+.gpu-stage/

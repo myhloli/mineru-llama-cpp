@@ -1,4 +1,4 @@
-"""在未安装 oneAPI SDK 的 Windows CI 中逐个加载 DLL，定位运行库缺失。"""
+"""在 Windows CI 中逐个加载 DLL，定位缺失运行库。"""
 from __future__ import annotations
 import argparse
 import ctypes
@@ -29,9 +29,9 @@ def main() -> None:
         shutil.copy2(Path(__file__).resolve().parents[1] / "src/mineru_llama_cpp/__init__.py", installed)
         print("Diagnostic override: current source __init__.py replaces the installed wheel bootstrap", flush=True)
     # 保持与安装测试相同的搜索路径，禁止构建工具链掩盖缺失 DLL。
-    os.environ.pop("ONEAPI_ROOT", None)
+    os.environ.pop("VULKAN_SDK", None)
     os.environ["PATH"] = os.pathsep.join(p for p in os.environ.get("PATH", "").split(os.pathsep)
-                                         if "oneapi" not in p.lower())
+                                         if "vulkansdk" not in p.lower())
     import mineru_llama_cpp
     package = Path(mineru_llama_cpp.__file__).parent
     report = {}

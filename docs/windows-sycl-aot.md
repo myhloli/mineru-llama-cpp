@@ -1,5 +1,7 @@
 # Windows Arc 130T AOT/FP16 候选验收
 
+> 历史记录：项目现已移除 SYCL 支持。以下配置、候选结果和命令仅描述旧版本；相关专项工具已删除，当前支持范围及本轮验证见 [abi3 验证记录](abi3-backends-validation.md)。
+
 本轮只替换 Windows AMD64 wheel 的 SYCL MODULE。它使用 oneAPI 2026.1.1、
 `GGML_SYCL_F16=ON`、`GGML_SYCL_DEVICE_ARCH=arl-h`，编译和链接都传入
 `-fsycl-targets=spir64_gen -Xsycl-target-backend=spir64_gen "-device arl-h -exclude_ir"`。

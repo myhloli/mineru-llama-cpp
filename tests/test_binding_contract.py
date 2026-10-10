@@ -43,3 +43,11 @@ def test_supports_int_conversion_and_float_rejection():
     for value in (1.5, 2**80, "256"):
         with pytest.raises(TypeError):
             _EngineCore("missing", "missing", value, 0, 1, 0, 1)
+
+
+@pytest.mark.parametrize("layers", [0, 99])
+def test_removed_sycl_configuration_rejects_engine_creation(monkeypatch, layers):
+    """公开原生构造入口必须在加载模型前拒绝 SYCL，包括强制 CPU 的零层配置。"""
+    monkeypatch.setenv("MINERU_LLAMA_CPP_BACKEND", "sycl")
+    with pytest.raises(ValueError, match="must be auto, cpu, vulkan or metal"):
+        _EngineCore("missing-model", "missing-projector", 256, layers, 1, 0, 1)

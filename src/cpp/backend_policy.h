@@ -24,10 +24,10 @@ inline std::string canonical_backend_name(std::string name) {
 inline std::vector<size_t> select_backend_devices(const std::vector<BackendDevice> & devices,
                                                 const std::string & requested,
                                                 bool force_cpu = false) {
-    static const std::vector<std::string> priority = {"sycl", "metal", "vulkan"};
+    static const std::vector<std::string> priority = {"metal", "vulkan"};
     if (requested != "auto" && requested != "cpu" &&
         std::find(priority.begin(), priority.end(), requested) == priority.end())
-        throw std::invalid_argument("MINERU_LLAMA_CPP_BACKEND must be auto, cpu, sycl, vulkan or metal");
+        throw std::invalid_argument("MINERU_LLAMA_CPP_BACKEND must be auto, cpu, vulkan or metal");
     if (force_cpu || requested == "cpu") return {};
     for (bool integrated : {false, true}) {
         for (const auto & backend : priority) {

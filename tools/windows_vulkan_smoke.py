@@ -81,7 +81,7 @@ def main() -> None:
         return
     environment = os.environ.copy()
     environment["PATH"] = os.pathsep.join(item for item in environment.get("PATH", "").split(os.pathsep)
-                                          if "vulkansdk" not in item.lower() and "oneapi" not in item.lower())
+                                          if "vulkansdk" not in item.lower())
     for option in ("--missing-loader", "--probe"):
         subprocess.run([sys.executable, str(Path(__file__).resolve()), option], env=environment, check=True)
 

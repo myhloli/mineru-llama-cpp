@@ -1,4 +1,4 @@
-"""安装固定 Vulkan/oneAPI 构建工具，构建内置运行库的 SYCL 后端。"""
+"""按 Windows 架构准备固定版本 Vulkan SDK。"""
 from __future__ import annotations
 import argparse
 import hashlib
@@ -6,13 +6,9 @@ import os
 import re
 from pathlib import Path
 import subprocess
-import sys
 import zipfile
 from download_sdk import download
-from build_gpu_backends import stage_matches
 from windows_pe import pe_machine
-
-ROOT = Path(__file__).resolve().parents[1]
 
 
 def vulkan_ready(prefix: Path, machine: int | None = None) -> bool:
@@ -51,7 +47,7 @@ def prepare_arm64_test_loader(prefix: Path, work: Path) -> None:
 
 
 def main() -> None:
-    """按架构安装固定 SDK；ARM64 仅构建 Vulkan，AMD64 额外准备 SYCL。"""
+    """按架构安装固定 SDK；ARM64 额外准备仅供 CI 检查的 loader。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--arch", choices=("AMD64", "ARM64"), default="AMD64")
     args = parser.parse_args()
@@ -60,11 +56,10 @@ def main() -> None:
     work = Path(os.environ["RUNNER_TEMP"]) / ("mineru-gpu-build-arm64" if arm64 else "mineru-gpu-build")
     work.mkdir(parents=True, exist_ok=True)
     vulkan = Path(os.environ["VULKAN_SDK"])
-    stage = None if arm64 else Path(os.environ["MINERU_EXTRA_BACKENDS_DIR"])
-    if vulkan_ready(vulkan, machine) and (arm64 or stage_matches(stage, "sycl")):
+    if vulkan_ready(vulkan, machine):
         if arm64:
             prepare_arm64_test_loader(vulkan, work)
-        print("Using cached Vulkan SDK and independently built GPU MODULEs")
+        print("Using cached Vulkan SDK")
         return
     if not vulkan_ready(vulkan, machine):
         installer = work / "vulkan_sdk.exe"
@@ -76,29 +71,7 @@ def main() -> None:
         raise RuntimeError(f"Vulkan SDK 1.4.350.0 is missing or has the wrong architecture for {args.arch}")
     if arm64:
         prepare_arm64_test_loader(vulkan, work)
-        print("Native ARM64 Vulkan SDK ready; no oneAPI runtime is required")
-        return
-    installer = work / "oneapi.exe"
-    download("https://registrationcenter-download.intel.com/akdlm/IRC_NAS/0cb67a0d-67f6-410b-868b-f4a0a17ff0cf/intel-oneapi-toolkit-2026.1.1.32_offline.exe", installer)
-    extracted = work / "oneapi-extracted"
-    run_installer([str(installer), "-s", "-x", "-f", str(extracted)])
-    components = "intel.oneapi.win.cpp-dpcpp-common:intel.oneapi.win.mkl.devel:intel.oneapi.win.dnnl:intel.oneapi.win.tbb.devel"
-    run_installer([str(extracted / "bootstrapper.exe"), "-s", "--action", "install", "--eula=accept",
-                   "--components=" + components, "-p=NEED_VS2022_INTEGRATION=0"])
-    installer.unlink()
-    level_zero = work / "level-zero-sdk"
-    subprocess.run([sys.executable, str(ROOT / "tools/build_level_zero.py"), "--prefix", str(level_zero),
-                    "--work", str(work / "level-zero"), "--stage", str(stage)], check=True)
-    os.environ["LEVEL_ZERO_V1_SDK_PATH"] = str(level_zero)
-    setvars = Path(os.environ["ONEAPI_ROOT"]) / "setvars.bat"
-    if not setvars.is_file():
-        raise FileNotFoundError(f"oneAPI environment script missing: {setvars}")
-    # cmd.exe 不使用 Windows C argv 的反斜杠引号转义；通过脚本避免 list2cmdline 二次转义。
-    batch = work / "build-sycl.cmd"
-    batch.write_text(f'@echo off\ncall "{setvars}" intel64 --force\nif errorlevel 1 exit /b %errorlevel%\n'
-                     f'"{sys.executable}" "{ROOT / "tools/build_gpu_backends.py"}" --backend sycl --stage "{stage}" --work "{work / "sycl"}"\n'
-                     'exit /b %errorlevel%\n', newline="\r\n")
-    subprocess.run(["cmd.exe", "/d", "/c", str(batch)], check=True)
+    print(f"Native {args.arch} Vulkan SDK ready")
 
 
 if __name__ == "__main__":

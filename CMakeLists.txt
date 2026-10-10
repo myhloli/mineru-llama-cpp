@@ -86,8 +86,9 @@ set(GGML_BACKEND_DL ON CACHE BOOL "" FORCE)
 # -DBUILD_SHARED_LIBS=OFF quietly breaking the DL build.
 set(BUILD_SHARED_LIBS ON CACHE BOOL "" FORCE)
 
-# 发布及源码构建均不支持 CUDA，避免显式构建参数重新引入大体积后端。
+# 发布及源码构建均不支持 CUDA/SYCL，避免显式参数或旧缓存重新启用。
 set(GGML_CUDA OFF CACHE BOOL "CUDA backend is not supported" FORCE)
+set(GGML_SYCL OFF CACHE BOOL "SYCL backend is not supported" FORCE)
 
 # GGML_NATIVE (llama.cpp's default ON) is incompatible with GGML_BACKEND_DL:
 # on x86_64, ggml/src/ggml-cpu/CMakeLists.txt:374 raises a hard

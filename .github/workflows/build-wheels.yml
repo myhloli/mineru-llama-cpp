@@ -10,13 +10,9 @@ on:
         description: 'Platforms to validate (tag releases always build all)'
         type: choice
         default: all
-        options: [all, linux, windows, windows-arm64, windows-amd64-sycl, macos, windows-runtime]
+        options: [all, linux, windows, windows-arm64, macos, windows-runtime]
       runtime_run_id:
         description: 'Existing build run for the Windows runtime diagnostic only'
-        required: false
-        type: string
-      reuse_sycl_run_id:
-        description: 'Optional pinned native AOT intermediate run (see windows_sycl_recovery.json)'
         required: false
         type: string
 
@@ -36,13 +32,12 @@ jobs:
           run-id: ${{ inputs.runtime_run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - run: pip install pefile
-      - name: Load each bundled DLL without oneAPI SDK
+      - name: Load each bundled DLL without Vulkan SDK
         run: python tools/diagnose_windows_runtime.py runtime-check
-      - name: Check AOT profile and Windows benchmark helpers
+      - name: Verify Windows wheel distribution
         run: |
-          pip install packaging pytest
+          pip install packaging
           python tools/verify_wheels.py runtime-check --allow-subset
-          python -m pytest tests/test_arc_benchmark.py -q
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -62,13 +57,12 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: |
-            .gpu-stage
             .gpu-tools
-          key: gpu-manylinux228-${{ runner.arch }}-sycl-vulkan-${{ hashFiles('llama-cpp-revision.txt', 'third_party/llama.cpp/ggml/**', 'patches/llama.cpp/*.patch', 'tools/setup_linux_gpu.sh', 'tools/build_gpu_backends.py', 'tools/build_level_zero.py') }}
-          restore-keys: gpu-manylinux228-${{ runner.arch }}-sycl-vulkan-
+          key: gpu-manylinux228-${{ runner.arch }}-vulkan-only-${{ hashFiles('llama-cpp-revision.txt', 'third_party/llama.cpp/ggml/**', 'patches/llama.cpp/*.patch', 'tools/setup_linux_gpu.sh') }}
+          restore-keys: gpu-manylinux228-${{ runner.arch }}-vulkan-only-
       - name: Install cibuildwheel
         run: pip install cibuildwheel==4.3.0
-      - name: Build wheels (Linux x86_64, CPU+Vulkan+SYCL)
+      - name: Build wheels (Linux x86_64, CPU+Vulkan)
         run: cibuildwheel --output-dir wheelhouse --archs x86_64
       - uses: actions/upload-artifact@v4
         if: always()
@@ -94,10 +88,9 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: |
-            .gpu-stage
             .gpu-tools
-          key: gpu-manylinux228-${{ runner.arch }}-sycl-vulkan-${{ hashFiles('llama-cpp-revision.txt', 'third_party/llama.cpp/ggml/**', 'patches/llama.cpp/*.patch', 'tools/setup_linux_gpu.sh', 'tools/build_gpu_backends.py', 'tools/build_level_zero.py') }}
-          restore-keys: gpu-manylinux228-${{ runner.arch }}-sycl-vulkan-
+          key: gpu-manylinux228-${{ runner.arch }}-vulkan-only-${{ hashFiles('llama-cpp-revision.txt', 'third_party/llama.cpp/ggml/**', 'patches/llama.cpp/*.patch', 'tools/setup_linux_gpu.sh') }}
+          restore-keys: gpu-manylinux228-${{ runner.arch }}-vulkan-only-
       - name: Install cibuildwheel
         run: pip install cibuildwheel==4.3.0
       - name: Build wheels (Linux aarch64, CPU+Vulkan)
@@ -198,7 +191,7 @@ jobs:
           path: wheelhouse/*.whl
 
   build_windows:
-    if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'windows' || inputs.platform == 'windows-amd64-sycl'
+    if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'windows'
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
@@ -215,38 +208,13 @@ jobs:
         with:
           path: |
             C:/VulkanSDK
-            C:/mineru-gpu-backends
-          key: gpu-windows-amd64-sycl-vulkan-${{ hashFiles('llama-cpp-revision.txt', 'third_party/llama.cpp/ggml/**', 'patches/llama.cpp/*.patch', 'tools/setup_windows_gpu.py', 'tools/build_gpu_backends.py', 'tools/sycl_profile.py', 'tools/audit_sycl_aot.py', 'tools/strip_sycl_ir.py', 'tools/download_sdk.py', 'tools/build_level_zero.py') }}
-          restore-keys: gpu-windows-amd64-sycl-vulkan-
-      - uses: actions/download-artifact@v4
-        if: inputs.reuse_sycl_run_id != '' && github.event_name == 'workflow_dispatch'
-        with:
-          name: native-sycl-aot-failure
-          path: native-recovery
-          run-id: ${{ inputs.reuse_sycl_run_id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: actions/download-artifact@v4
-        if: inputs.reuse_sycl_run_id != '' && github.event_name == 'workflow_dispatch'
-        with:
-          name: wheels-windows-amd64
-          path: runtime-recovery
-          run-id: '38021630646'
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Recover verified native AOT intermediate and unchanged runtimes
-        if: inputs.reuse_sycl_run_id != '' && github.event_name == 'workflow_dispatch'
-        run: |
-          $wheel = (Get-ChildItem runtime-recovery/*.whl).FullName
-          python tools/recover_windows_sycl.py --module native-recovery/ggml-sycl.dll --runtime-wheel "$wheel" --stage C:/mineru-gpu-backends --run-id "${{ inputs.reuse_sycl_run_id }}"
+          key: gpu-windows-amd64-vulkan-only-${{ hashFiles('llama-cpp-revision.txt', 'third_party/llama.cpp/ggml/**', 'patches/llama.cpp/*.patch', 'tools/setup_windows_gpu.py', 'tools/download_sdk.py') }}
+          restore-keys: gpu-windows-amd64-vulkan-only-
       - name: Install cibuildwheel
         run: pip install cibuildwheel==4.3.0
-      - name: Build wheels (Windows AMD64, CPU+Vulkan+SYCL)
-        run: |
-          if ("${{ inputs.platform }}" -eq "windows-amd64-sycl") {
-            # 仅复核变更的 AOT MODULE、设备过滤和安装边界；其他后端模型回归沿用已验证记录。
-            $env:CIBW_TEST_COMMAND = 'python {project}/tools/windows_sycl_smoke.py && python -m pytest {project}/tests/test_sycl_aot.py {project}/tests/test_arc_benchmark.py -q'
-          }
-          cibuildwheel --output-dir wheelhouse --archs AMD64
-      - name: Audit AMD64 wheel AOT images and stable ABI
+      - name: Build wheels (Windows AMD64, CPU+Vulkan)
+        run: cibuildwheel --output-dir wheelhouse --archs AMD64
+      - name: Audit AMD64 wheel architecture and stable ABI
         run: |
           pip install packaging abi3audit
           python tools/verify_wheels.py wheelhouse --allow-subset
@@ -254,18 +222,6 @@ jobs:
             abi3audit --strict $_.FullName
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: diagnostics-windows-amd64-sycl
-          path: C:/mineru-gpu-backends/sycl-build.json
-          if-no-files-found: ignore
-      - uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: native-sycl-aot-failure
-          path: C:/mineru-gpu-backends/ggml-sycl.dll
-          if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
           name: wheels-windows-amd64

@@ -9,10 +9,9 @@ import subprocess
 import shutil
 import tempfile
 import zipfile
+from wheel_policy import is_sycl_runtime, validate_no_sycl_files
 
-GPU_RUNTIME_PREFIXES = ("libsycl", "libmkl", "libdnnl", "libtbb",
-                        "libiomp", "libur_", "libumf", "libtcm", "libhwloc", "libsvml", "libimf", "libintlc", "libirng",
-                        "libOpenCL.so", "libvulkan.so", "libze_loader")
+GPU_RUNTIME_PREFIXES = ("libvulkan.so",)
 
 
 def inspect_elf(path: Path) -> tuple[set[str], set[str]]:
@@ -38,6 +37,7 @@ def inspect_wheel(wheel: Path) -> tuple[dict, set[str]]:
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
         with zipfile.ZipFile(wheel) as archive:
+            validate_no_sycl_files(archive.namelist())
             archive.extractall(root)
         for path in root.rglob("*"):
             if not path.is_file():
@@ -52,10 +52,12 @@ def inspect_wheel(wheel: Path) -> tuple[dict, set[str]]:
 
 
 def validate_report(report: dict) -> None:
-    """对全部 ELF 执行 manylinux_2_28 的 C/C++ 符号下限和无 CUDA 约束。"""
+    """对全部 ELF 执行 manylinux_2_28 符号下限及无 CUDA/SYCL 依赖约束。"""
     for path, info in report.items():
         if any(name.startswith(("libcuda", "libcublas")) for name in info["needed"]):
             raise RuntimeError(f"CUDA dependencies are not supported: {path} -> {info['needed']}")
+        if is_sycl_runtime(path) or any(is_sycl_runtime(name) for name in info["needed"]):
+            raise RuntimeError(f"SYCL dependencies are not supported: {path} -> {info['needed']}")
         for prefix, maximum in (("GLIBC_", (2, 28)), ("GLIBCXX_", (3, 4, 24)), ("CXXABI_", (1, 3, 11))):
             required = [tuple(map(int, value.removeprefix(prefix).split("."))) for value in info["versions"] if value.startswith(prefix) and value.removeprefix(prefix)[0].isdigit()]
             if any(version > maximum for version in required):
