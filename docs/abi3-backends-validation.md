@@ -41,7 +41,18 @@ CI 从官方 ARM64 runtime 组件归档准备固定版本 loader，核对 SHA256
 设备枚举与缺失 loader 的 CPU 回退，并严格审计 abi3；其他五个平台及已有 API 回归复用前轮结果。
 缺失 loader 检查只修改临时 MODULE 副本的 DLL 导入名称，不修改安装包。
 实际 Windows ARM64 GPU 推理仍须对应硬件、Q8_0 模型、视觉投影和页面提取验证。
-增量构建与候选归档结果待本轮 CI 完成后补入。
+[增量 CI 38025408463](https://github.com/myhloli/mineru-llama-cpp/actions/runs/38025408463)
+在提交 `11ed1a7` 全部成功。同一 wheel 在 Python 3.10.11 / 3.11.9 / 3.12.10 / 3.13.16 / 3.14.8
+均完成原始 Vulkan MODULE 加载，以及临时副本注入缺失 loader 后的 CPU 存活检查；
+后四个 Python 版本明确复用已构建的 cp310-abi3 wheel，未重复编译。
+CI 未枚举出 Vulkan GPU，不代表真实模型执行。其他平台任务及已有 API 回归均跳过。
+
+新 wheel 大小为 19,467,251 B（18.57 MiB），原 Windows ARM64 CPU 包为 5.47 MiB。
+包内十个原生产物均为 ARM64；仅 `ggml-vulkan.dll` 导入 `vulkan-1.dll`，
+Python 扩展和公共核心库没有新增 GPU 运行库硬依赖，wheel 不包含 Vulkan loader 或 SYCL。
+最终六包中其余五包与原始最终 CI 产物 SHA256 完全一致；原 CPU-only ARM64 包及六包归档
+保存在 `previous-windows-arm64-cpu-only/`。增量证据为 `windows-arm64-vulkan.log`、
+`windows-arm64-vulkan-status.json`、`windows-arm64-vulkan-pe.json` 和 `delivery-provenance.json`。
 
 ## 本地验证
 
@@ -58,7 +69,7 @@ CI 从官方 ARM64 runtime 组件归档准备固定版本 loader，核对 SHA256
 | macOS Intel CPU 产物 | CI wheel 在 M4 Rosetta / x86_64 Python 3.14 下加载 Q8_0 模型和投影，并完成 32 token 生成；不代表物理 Intel GPU 或性能证据 |
 | sdist 无子模块 Git 元数据配置 | 通过，提交常量正确，未误读外层仓库 |
 | MODULE 合并保护 | 拒绝错误提交、不同补丁、公共核心库冒充后端、非法运行库；额外核心库未合入 |
-| 六平台 CI | [最终运行 38021630646](https://github.com/myhloli/mineru-llama-cpp/actions/runs/38021630646) 全部成功，恰好六个 cp310-abi3 wheel，Python 3.10–3.14 每平台各 79 passed；严格 ABI 汇总及 Xcode 16.4 检查通过 |
+| 原六平台 CI（Windows ARM64 为 CPU） | [运行 38021630646](https://github.com/myhloli/mineru-llama-cpp/actions/runs/38021630646) 全部成功，恰好六个 cp310-abi3 wheel，Python 3.10–3.14 每平台各 79 passed；严格 ABI 汇总及 Xcode 16.4 检查通过。Windows ARM64 Vulkan 由上述增量 CI 替换 |
 
 最后一轮绑定迁移对比使用相同 llama.cpp 提交、Q8_0 模型、Q8_0 mmproj 和真实页面图像。
 所有生成文本及完整 MinerU 提取结构逐轮一致，三个独立进程取中位数：
@@ -114,6 +125,7 @@ GLIBCXX 3.4.21、CXXABI 1.3.9；完整报告保存在 `delivery-linux-*-audits/*
 | Intel GPU / SYCL（Windows/Linux） | 无对应本机硬件，待真机验证 |
 | NVIDIA / Vulkan | 无对应本机硬件，待真机验证 |
 | AMD RDNA3/4 / Vulkan | 无对应本机硬件，待真机验证 |
+| Windows ARM64 / Vulkan | MODULE 加载与无 loader 回退通过；CI 没有 GPU，实际模型与页面提取待真机验证 |
 
 无 GPU 的 CI 验证可分发性、ABI、安装与 CPU 后端，不作为 GPU 推理执行证据。
 安装对应候选 wheel，准备相同 Q8_0 模型、mmproj 和真实页面图像，按 README 配置运行库。
@@ -143,6 +155,6 @@ RHEL 8.10 在支持范围内，仍以最终包内全部 ELF 的 glibc、GLIBCXX�
 | manylinux_2_28_aarch64 | 19.78 MiB |
 | manylinux_2_28_x86_64 | 36.65 MiB |
 | win_amd64 | 146.18 MiB |
-| win_arm64 | 5.47 MiB |
+| win_arm64 | 18.57 MiB |
 
 SHA256 与完整字节数：`delivery-sizes.json`。Windows AMD64 包含 SYCL 运行库，Linux 保持外部依赖策略。
