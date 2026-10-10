@@ -10,9 +10,36 @@ on:
         description: 'Platforms to validate (tag releases always build all)'
         type: choice
         default: all
-        options: [all, linux, windows, macos]
+        options: [all, linux, windows, macos, windows-runtime]
+      runtime_run_id:
+        description: 'Existing build run for the Windows runtime diagnostic only'
+        required: false
+        type: string
 
 jobs:
+  diagnose_windows_runtime:
+    if: github.event_name == 'workflow_dispatch' && inputs.platform == 'windows-runtime'
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheels-windows-amd64
+          path: runtime-check
+          run-id: ${{ inputs.runtime_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - run: pip install pefile
+      - name: Load each bundled DLL without oneAPI SDK
+        run: python tools/diagnose_windows_runtime.py runtime-check
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: diagnostics-windows-runtime
+          path: runtime-check/*.json
+
   build_linux_x86_64:
     if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'linux'
     runs-on: ubuntu-latest
