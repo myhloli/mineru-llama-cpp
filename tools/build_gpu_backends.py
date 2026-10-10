@@ -60,11 +60,12 @@ def windows_toolchain(root: Path) -> tuple[str, dict]:
     version = subprocess.check_output([str(compiler), "--version"], text=True, stderr=subprocess.STDOUT)
     if "2026.1.1" not in version:
         raise RuntimeError(f"Unexpected oneAPI compiler version: {version}")
-    candidates = sorted(compiler_root.rglob("ocloc.exe"))
-    if not candidates:
-        raise RuntimeError(f"OCLOC is missing from fixed oneAPI installation: {compiler_root}")
+    # 2026.1.1 将 OCLOC 作为独立组件安装；只接受 setvars 选中的固定 oneAPI 组件路径。
+    ocloc = Path(shutil.which("ocloc") or "missing").resolve()
+    if (not ocloc.is_file() or not ocloc.is_relative_to(root.resolve())
+            or "latest" in ocloc.relative_to(root.resolve()).parts):
+        raise RuntimeError(f"OCLOC is missing from a versioned directory under fixed oneAPI installation: {ocloc}")
     # 驱动链接器通过 PATH 查找 ocloc；把审计的版本放到搜索路径首位。
-    ocloc = candidates[0]
     os.environ["PATH"] = str(ocloc.parent) + os.pathsep + os.environ["PATH"]
     with pefile.PE(str(ocloc)) as binary:
         info = binary.VS_FIXEDFILEINFO[0]
@@ -72,7 +73,7 @@ def windows_toolchain(root: Path) -> tuple[str, dict]:
             info.FileVersionMS >> 16, info.FileVersionMS & 65535,
             info.FileVersionLS >> 16, info.FileVersionLS & 65535))
     identity = {"version": file_version, "sha256": hashlib.sha256(ocloc.read_bytes()).hexdigest(),
-                "relative_path": str(ocloc.relative_to(root)).replace("\\", "/")}
+                "relative_path": str(ocloc.relative_to(root.resolve())).replace("\\", "/")}
     print(json.dumps({"compiler": version.strip(), "ocloc": identity}), flush=True)
     return version, identity
 

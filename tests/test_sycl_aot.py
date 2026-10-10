@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import struct
 import sys
+from types import SimpleNamespace
 import pytest
 from test_backend_policy import backend_selector
 
@@ -119,3 +120,36 @@ def test_toolchain_and_binary_fingerprints():
         validate_module(manifest_for(data), b"changed-host" + data)
     with pytest.raises(KeyError):
         validate_module({"toolchain": "old FP32/JIT"}, data)
+
+
+def test_stage_cache_rebuilds_old_profile_and_changed_module(tmp_path, monkeypatch):
+    """真实缓存入口拒绝旧清单、配置变化及二进制变化，新 runner 无 SDK 时仍可复用。"""
+    import hashlib
+    import build_gpu_backends as builder
+    patches = tmp_path / "patches/llama.cpp"
+    patches.mkdir(parents=True)
+    patch = patches / "test.patch"
+    patch.write_bytes(b"fixed-patch")
+    monkeypatch.setattr(builder, "ROOT", tmp_path)
+    monkeypatch.setattr(builder, "llama_revision", lambda: "fixed-commit")  # 固定源码身份，隔离缓存规则。
+    monkeypatch.setattr(builder, "os", SimpleNamespace(name="nt", environ={"ONEAPI_ROOT": str(tmp_path / "missing-sdk")}))
+    stage = tmp_path / "stage"
+    stage.mkdir()
+    data = native_elf()
+    module = stage / "ggml-sycl.dll"
+    module.write_bytes(data)
+    manifest = manifest_for(data)
+    manifest.update(backend="sycl", llama_cpp_commit="fixed-commit", module=module.name,
+                    patches={patch.name: hashlib.sha256(patch.read_bytes()).hexdigest()})
+    source = stage / "sycl-build.json"
+    source.write_text(json.dumps(manifest))
+    assert builder.stage_matches(stage, "sycl")
+    module.write_bytes(b"different-host" + data)
+    assert not builder.stage_matches(stage, "sycl")
+    module.write_bytes(data)
+    manifest["configuration"]["precision"] = "f32"
+    source.write_text(json.dumps(manifest))
+    assert not builder.stage_matches(stage, "sycl")
+    del manifest["configuration"]
+    source.write_text(json.dumps(manifest))
+    assert not builder.stage_matches(stage, "sycl")

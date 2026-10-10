@@ -34,6 +34,11 @@ jobs:
       - run: pip install pefile
       - name: Load each bundled DLL without oneAPI SDK
         run: python tools/diagnose_windows_runtime.py runtime-check
+      - name: Check AOT profile and Windows benchmark helpers
+        run: |
+          pip install packaging pytest
+          python tools/verify_wheels.py runtime-check --allow-subset
+          python -m pytest tests/test_arc_benchmark.py -q
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -215,7 +220,7 @@ jobs:
         run: |
           if ("${{ inputs.platform }}" -eq "windows-amd64-sycl") {
             # 仅复核变更的 AOT MODULE、设备过滤和安装边界；其他后端模型回归沿用已验证记录。
-            $env:CIBW_TEST_COMMAND = 'python {project}/tools/windows_sycl_smoke.py && python -m pytest {project}/tests/test_sycl_aot.py -q'
+            $env:CIBW_TEST_COMMAND = 'python {project}/tools/windows_sycl_smoke.py && python -m pytest {project}/tests/test_sycl_aot.py {project}/tests/test_arc_benchmark.py -q'
           }
           cibuildwheel --output-dir wheelhouse --archs AMD64
       - name: Audit AMD64 wheel AOT images and stable ABI

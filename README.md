@@ -49,7 +49,7 @@ source or use a validated candidate to try the new backends.
 |---|---|---|---|
 | Linux x86_64 | `manylinux_2_28_x86_64` | CPU, Vulkan, SYCL | Driver; Vulkan loader; matching oneAPI runtime when used |
 | Linux aarch64 | `manylinux_2_28_aarch64` | CPU, Vulkan | Driver; Vulkan loader |
-| Windows AMD64 | `win_amd64` | CPU, Vulkan, SYCL | Driver; SYCL runtime is bundled |
+| Windows AMD64 | `win_amd64` | CPU, Vulkan, SYCL (ARL-H AOT/FP16) | Driver; SYCL runtime is bundled |
 | Windows ARM64 | `win_arm64` | CPU, Vulkan | Native ARM64 GPU driver and Vulkan loader |
 | macOS arm64 | `macosx_14_0_arm64` | CPU, Metal | macOS 14+ |
 | macOS x86_64 | `macosx_14_0_x86_64` | CPU | macOS 14+ |
@@ -121,8 +121,14 @@ Follow [Intel's GPU driver guide](https://dgpu-docs.intel.com/driver/installatio
 for the target distribution and GPU. Without that runtime, automatic selection
 uses Vulkan or CPU.
 
-On Windows, SYCL requires an Intel GPU driver; its user-space runtime
-libraries are already in the wheel. No CUDA toolkit or CUDA runtime is used.
+On Windows AMD64, this SYCL candidate supports Arrow Lake-H (`arl-h`,
+Arc 130T/140T) with native AOT kernels and FP16 defaults. Other Intel GPUs
+use Vulkan/CPU in automatic mode; explicitly selecting SYCL reports the
+architecture restriction. The Intel GPU driver is required; user-space
+runtime libraries are bundled. Linux SYCL retains FP32/JIT.
+See [the Arc comparison procedure](docs/windows-sycl-aot.md) for the retained
+FP32/JIT baseline, independent-process timings and per-page quality review.
+No CUDA toolkit or CUDA runtime is used.
 
 Release CI independently builds optional GPU modules using their respective
 compilers, stages only the new modules, and verifies their llama.cpp commit
