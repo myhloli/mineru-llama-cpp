@@ -242,9 +242,10 @@ void select_engine_backend(common_params & params, int requested_layers) {
         LOG_INF("mineru-llama-cpp: selected %s (%s), backend=%s\n", ggml_backend_dev_name(device),
                 ggml_backend_dev_description(device), ggml_backend_reg_name(ggml_backend_dev_backend_reg(device)));
     }
+    // llama_model_params.devices 是以 nullptr 终止的数组，GPU 列表也必须显式终止。
+    params.devices.push_back(nullptr);
     if (selected.empty()) {
-        // 非空的空设备列表阻止 llama.cpp 再次自动挑选其他 GPU。
-        params.devices.push_back(nullptr);
+        // 仅含终止项的非空列表阻止 llama.cpp 再次自动挑选其他 GPU。
         params.n_gpu_layers = 0;
         params.mmproj_use_gpu = false;
         LOG_INF("mineru-llama-cpp: selected CPU (requested=%s); no eligible GPU backend or CPU forced\n", requested.c_str());
