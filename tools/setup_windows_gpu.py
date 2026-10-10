@@ -1,11 +1,13 @@
 """安装固定 Vulkan/oneAPI 构建工具，构建内置运行库的 SYCL 后端。"""
 from __future__ import annotations
 import argparse
+import hashlib
 import os
 import re
 from pathlib import Path
 import subprocess
 import sys
+import zipfile
 from download_sdk import download
 from build_gpu_backends import stage_matches
 from windows_pe import pe_machine
@@ -29,6 +31,25 @@ def run_installer(command: list[str]) -> None:
         raise subprocess.CalledProcessError(result.returncode, command)
 
 
+def prepare_arm64_test_loader(prefix: Path, work: Path) -> None:
+    """仅为无 GPU 驱动的 CI 安装检查准备官方 ARM64 loader，禁止合入 wheel。"""
+    destination = prefix / "TestRuntime/vulkan-1.dll"
+    if destination.is_file() and pe_machine(destination.read_bytes()) == 0xAA64:
+        return
+    archive_path = work / "vulkan-runtime-arm64.zip"
+    download("https://sdk.lunarg.com/sdk/download/1.4.350.0/warm/VulkanRT-ARM64-1.4.350.0-Components.zip", archive_path)
+    if hashlib.sha256(archive_path.read_bytes()).hexdigest() != "1845c336ca17180ca4e4f6f52542ff9998aa39a76bc6ed75961eef67aad1a811":
+        raise RuntimeError("Unexpected checksum for ARM64 Vulkan test runtime")
+    with zipfile.ZipFile(archive_path) as archive:
+        name = "VulkanRT-ARM64-1.4.350.0-Components/vulkan-1.dll"
+        data = archive.read(name)
+    if pe_machine(data) != 0xAA64:
+        raise RuntimeError("Vulkan test loader is not native ARM64")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(data)
+    archive_path.unlink()
+
+
 def main() -> None:
     """按架构安装固定 SDK；ARM64 仅构建 Vulkan，AMD64 额外准备 SYCL。"""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -41,6 +62,8 @@ def main() -> None:
     vulkan = Path(os.environ["VULKAN_SDK"])
     stage = None if arm64 else Path(os.environ["MINERU_EXTRA_BACKENDS_DIR"])
     if vulkan_ready(vulkan, machine) and (arm64 or stage_matches(stage, "sycl")):
+        if arm64:
+            prepare_arm64_test_loader(vulkan, work)
         print("Using cached Vulkan SDK and independently built GPU MODULEs")
         return
     if not vulkan_ready(vulkan, machine):
@@ -52,6 +75,7 @@ def main() -> None:
     if not vulkan_ready(vulkan, machine):
         raise RuntimeError(f"Vulkan SDK 1.4.350.0 is missing or has the wrong architecture for {args.arch}")
     if arm64:
+        prepare_arm64_test_loader(vulkan, work)
         print("Native ARM64 Vulkan SDK ready; no oneAPI runtime is required")
         return
     installer = work / "oneapi.exe"

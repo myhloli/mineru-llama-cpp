@@ -34,6 +34,8 @@ CMake 强制关闭 CUDA，发布审计拒绝遗留 CUDA MODULE、manifest 和运
 固定使用 LunarG Vulkan SDK 1.4.350.0 的 Windows Arm 安装包，原生 ARM64 shader 工具及链接库；
 CPU 保留 clang-cl 和无 OpenMP 配置。所有 Windows DLL、EXE、PYD 都审计 PE Machine，防止混入 x64。
 Vulkan loader 与驱动由用户的原生 ARM64 显卡驱动提供，没有新增内置加速运行库。
+CI 从官方 ARM64 runtime 组件归档准备固定版本 loader，核对 SHA256 及 PE 架构，
+只用于直接 DLL 加载检查，不写入 wheel，也不作为真实 GPU 推理证据。
 
 本轮手动筛选 `windows-arm64`，仅复核新 wheel 在 Python 3.10–3.14 的 MODULE 加载、
 设备枚举与缺失 loader 的 CPU 回退，并严格审计 abi3；其他五个平台及已有 API 回归复用前轮结果。

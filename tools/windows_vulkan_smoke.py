@@ -49,9 +49,9 @@ def probe(package: Path, missing_loader: bool) -> None:
         print(json.dumps({"python": sys.version.split()[0], "missing_vulkan_loader": "isolated",
                           "cpu_fallback": "passed", "original_wheel_modified": False}), flush=True)
         return
-    # SDK 仅用于本项直接 DLL 加载复核；用户运行时由原生 ARM64 显卡驱动提供 loader。
+    # CI 的 loader 独立于 SDK 工具链且不在 wheel 内；用户运行时由显卡驱动提供。
     sdk = os.environ.get("VULKAN_SDK")
-    directory_handle = os.add_dll_directory(str(Path(sdk) / "Bin")) if sdk else None
+    directory_handle = os.add_dll_directory(str(Path(sdk) / "TestRuntime")) if sdk else None
     module_handle = ctypes.WinDLL(str(module), winmode=0x100 | 0x1000)
     registry = library.ggml_backend_load(str(module).encode())
     devices = []
