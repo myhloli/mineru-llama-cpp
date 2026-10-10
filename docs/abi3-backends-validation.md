@@ -43,16 +43,30 @@ Intel GPU Zebin ELF，核对 `12.74` 兼容 note、原生机器码及无备用 S
 模型及投影保持相同后端，零层卸载保留 CPU，推理错误不重跑。
 FP16 默认沿用上游精度策略，保留 FP32 累加、高精度要求及环境变量覆盖。
 
-本地专项回归 36 passed，覆盖过滤、混合架构、多个匹配设备、无法识别架构、
+本地专项回归 41 passed，覆盖过滤、混合架构、多个匹配设备、无法识别架构、
 原编号映射、严格选择和零层 CPU，以及 ELF、备用 IR、缓存指纹和质量比较工具。
 原始 Windows FP32/JIT wheel 及六包归档已保存在
 `previous-windows-amd64-fp32-jit/`，不会被新的候选覆盖。
 
+oneAPI 2026.1.1 编译/链接均指定 `-exclude_ir`，实测一个 ESIMD 原生 ELF 仍含
+90,876 字节 `.spv`。打包前清空该节并设置零长度，保持 PE 长度、映像地址和其他节不变。
+清理后的 DLL 包含 209 个带机器码的 ARL-H `12.74.4` 原生映像，严格审计未发现备用 IR。
+逐节比较证明全部原生指令和兼容信息保持不变；IR-only 或非 ARL-H 映像不能通过清理流程。
+Windows 附带的 20 个运行库 DLL 和 53 个许可文件与旧包完全一致，OCLOC 仅供构建使用。
+
 Windows 专项 CI 只运行本平台新 MODULE、运行库闭包、Python 3.10–3.14 安装、
 无设备 CPU 回退、设备策略及严格 abi3 / AMD64 PE 审计，其他平台与原有 CPU/Vulkan
-模型回归均跳过。对应 CI 与最终产物审计结果在本节交付时补充。
-前两次构建分别纠正了 OCLOC 独立组件的安装目录，以及 SDK 架构查询方法的 const 限制；
-失败记录不作为候选验收成功证据。
+模型回归均跳过。[Windows 专项 CI 38051516723](https://github.com/myhloli/mineru-llama-cpp/actions/runs/38051516723)
+通过，同一 wheel 在五个 Python 版本分别通过 41 项专项回归及实际安装检查，
+SYCL 设备数均为零，CPU 回退和显式 ARL-H 诊断通过；31 个原生产物均为 AMD64。
+[无 oneAPI SDK 的独立 Windows 复核 38052347518](https://github.com/myhloli/mineru-llama-cpp/actions/runs/38052347518)
+通过，核验原始 wheel 的 DLL 闭包、导入、无设备 CPU 回退及 AOT 契约。
+六包最终汇总和严格 abi3 审计通过，每包仅一个 Python 扩展；其他五包 SHA256 完全不变。
+链接中间产物来自固定源码/补丁的 CI 38045181417，原 DLL 摘要为
+`b488b8362fee5dca4df5c7270b2353324708733f63a2c9fa8f29c3ea278a0841`，
+清理后 MODULE 摘要为 `317066a899f9db0ea963d2157c8b2b987a270f64b341abd58018ef7cf2db0030`。
+该中间 CI 因备用 IR 审计失败；恢复流程先验证来源及摘要，清理后重新构建主体并执行以上检查。
+失败构建本身不作为安装或 GPU 执行验收成功证据。
 
 Arc 130T 实机性能和输出质量待验证；本机是 Apple M4，没有目标 Windows GPU。
 [同机对比说明](windows-sycl-aot.md) 提供三轮交替独立进程工具
@@ -191,7 +205,9 @@ RHEL 8.10 在支持范围内，仍以最终包内全部 ELF 的 glibc、GLIBCXX�
 | macosx_14_0_x86_64 | 5.54 MiB |
 | manylinux_2_28_aarch64 | 19.78 MiB |
 | manylinux_2_28_x86_64 | 36.65 MiB |
-| win_amd64 | 146.18 MiB |
+| win_amd64 | 174.95 MiB |
 | win_arm64 | 18.57 MiB |
 
 SHA256 与完整字节数：`delivery-sizes.json`。Windows AMD64 包含 SYCL 运行库，Linux 保持外部依赖策略。
+Windows AOT/FP16 候选比保留的 FP32/JIT 基线 146.18 MiB 增加 28.77 MiB。
+新增工具及同机验收说明随六包归档一起交付，真机结果尚未产生。

@@ -40,6 +40,12 @@ python your_script.py
 AOT 覆盖本项目设备内核；oneDNN/oneMKL 仍可能初始化、编译内部内核，
 此候选不承诺消除全部启动成本，也没有预设它一定快于 Vulkan。
 
+候选 wheel 为 174.95 MiB，旧 FP32/JIT 基线为 146.18 MiB。
+Windows 专项 CI 在 Python 3.10–3.14 各通过 41 项专项回归及安装检查；
+独立无 oneAPI SDK 的 Windows 复核、严格 abi3、31 个 AMD64 PE 和六包汇总审计通过。
+最终 DLL 含 209 个带原生机器码的 ARL-H `12.74.4` 映像，严格审计无备用 IR；
+其他五包 SHA256 未变。这些检查没有运行 Arc 130T 内核，以下实机验收仍待完成。
+
 ## 三轮同机对比
 
 保留两份 Python 环境：一份安装旧的 Windows FP32/JIT 候选，另一份安装新的 AOT/FP16 候选。
