@@ -9,7 +9,7 @@ import shutil
 import subprocess
 import sys
 from audit_sycl_aot import audit
-from sycl_profile import WINDOWS_SYCL_PROFILE, fingerprint, validate_module
+from sycl_profile import WINDOWS_SYCL_PROFILE, WINDOWS_OCLOC_VERSION, WINDOWS_OCLOC_RELATIVE_PATH, fingerprint, validate_module
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -60,10 +60,9 @@ def windows_toolchain(root: Path) -> tuple[str, dict]:
     version = subprocess.check_output([str(compiler), "--version"], text=True, stderr=subprocess.STDOUT)
     if "2026.1.1" not in version:
         raise RuntimeError(f"Unexpected oneAPI compiler version: {version}")
-    # 2026.1.1 将 OCLOC 作为独立组件安装；只接受 setvars 选中的固定 oneAPI 组件路径。
-    ocloc = Path(shutil.which("ocloc") or "missing").resolve()
-    if (not ocloc.is_file() or not ocloc.is_relative_to(root.resolve())
-            or "latest" in ocloc.relative_to(root.resolve()).parts):
+    # 2026.1.1 将 OCLOC 作为独立组件安装；显式定位固定版本，避免 PATH 中其他工具。
+    ocloc = (root / WINDOWS_OCLOC_RELATIVE_PATH).resolve()
+    if not ocloc.is_file() or not ocloc.is_relative_to(root.resolve()):
         raise RuntimeError(f"OCLOC is missing from a versioned directory under fixed oneAPI installation: {ocloc}")
     # 驱动链接器通过 PATH 查找 ocloc；把审计的版本放到搜索路径首位。
     os.environ["PATH"] = str(ocloc.parent) + os.pathsep + os.environ["PATH"]
@@ -72,6 +71,8 @@ def windows_toolchain(root: Path) -> tuple[str, dict]:
         file_version = ".".join(str(value) for value in (
             info.FileVersionMS >> 16, info.FileVersionMS & 65535,
             info.FileVersionLS >> 16, info.FileVersionLS & 65535))
+    if file_version != WINDOWS_OCLOC_VERSION:
+        raise RuntimeError(f"Unexpected OCLOC version: {file_version}")
     identity = {"version": file_version, "sha256": hashlib.sha256(ocloc.read_bytes()).hexdigest(),
                 "relative_path": str(ocloc.relative_to(root.resolve())).replace("\\", "/")}
     print(json.dumps({"compiler": version.strip(), "ocloc": identity}), flush=True)

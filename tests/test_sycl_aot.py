@@ -10,7 +10,7 @@ from test_backend_policy import backend_selector
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 from audit_sycl_aot import audit
-from sycl_profile import WINDOWS_SYCL_PROFILE, fingerprint, validate_module
+from sycl_profile import WINDOWS_SYCL_PROFILE, WINDOWS_OCLOC_VERSION, WINDOWS_OCLOC_RELATIVE_PATH, fingerprint, validate_module
 
 ARL = (True, True, True, True)
 OTHER = (True, True, False, True)
@@ -71,7 +71,8 @@ def native_elf(ip=(12, 74, 4), ir=False, native=True, nested=None):
 def manifest_for(data):
     """生成合法构建清单用于缓存与合包破坏性回归。"""
     configuration = copy.deepcopy(WINDOWS_SYCL_PROFILE)
-    compiler, ocloc = "Intel oneAPI DPC++ 2026.1.1", {"version": "26.1.0.1", "sha256": "a" * 64}
+    compiler, ocloc = "Intel oneAPI DPC++ 2026.1.1", {"version": WINDOWS_OCLOC_VERSION,
+        "relative_path": WINDOWS_OCLOC_RELATIVE_PATH, "sha256": "a" * 64}
     return {"configuration": configuration, "toolchain": compiler, "ocloc": ocloc,
             "fingerprint": fingerprint(configuration, compiler, ocloc), "aot_audit": audit(data)}
 
@@ -116,7 +117,7 @@ def test_toolchain_and_binary_fingerprints():
     data = native_elf()
     manifest = manifest_for(data)
     manifest["ocloc"]["version"] = "different"
-    with pytest.raises(ValueError, match="fingerprint"):
+    with pytest.raises(ValueError, match="OCLOC"):
         validate_module(manifest, data)
     with pytest.raises(ValueError, match="differs"):
         validate_module(manifest_for(data), b"changed-host" + data)

@@ -8,6 +8,8 @@ WINDOWS_SYCL_PROFILE = {
     "precision": "f16", "aot_target": "arl-h", "exclude_ir": True,
     "xmx_subgroup": 8, "jit_fallback": False, "parallel_aot_jobs": 1,
 }
+WINDOWS_OCLOC_VERSION = "32.0.101.8974"
+WINDOWS_OCLOC_RELATIVE_PATH = "ocloc/2026.1/bin/ocloc.exe"
 
 
 def fingerprint(configuration: dict, compiler: str, ocloc: dict) -> str:
@@ -23,6 +25,8 @@ def validate_manifest(manifest: dict) -> None:
     compiler, ocloc = manifest["toolchain"], manifest["ocloc"]
     if "2026.1.1" not in compiler or not ocloc["version"] or len(ocloc["sha256"]) != 64:
         raise ValueError("SYCL compiler/OCLOC identity is missing or incompatible")
+    if ocloc["version"] != WINDOWS_OCLOC_VERSION or ocloc["relative_path"] != WINDOWS_OCLOC_RELATIVE_PATH:
+        raise ValueError("OCLOC differs from the fixed oneAPI 2026.1.1 component")
     if manifest["fingerprint"] != fingerprint(manifest["configuration"], compiler, ocloc):
         raise ValueError("SYCL configuration/toolchain fingerprint differs")
     audit = manifest["aot_audit"]
