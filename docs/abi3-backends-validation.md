@@ -9,8 +9,9 @@ SYCL 设备适用性、SDK 路径、初始化错误传播及 Windows AOT 四个�
 根据用户后续调整，所有平台移除 CUDA，取消 ARM64 CUDA / DGX Spark 专用设备代码目标。
 不再下载 CUDA 工具链，不打包 CUDA MODULE 或运行库，也不支持 `MINERU_LLAMA_CPP_BACKEND=cuda`。
 随后移除 SYCL：源码构建及运行时选择均不再支持，不再下载 oneAPI 或 Level Zero SDK，
-也不再暂存、合包或预加载 SYCL MODULE / 运行库。CMake 强制关闭 CUDA/SYCL，
-发布审计拒绝两者的遗留 MODULE、manifest 和运行库，Linux ELF 审计拒绝 oneAPI 动态依赖。
+也不再暂存、合包或预加载 SYCL MODULE / 运行库。CMake 强制关闭 CUDA/SYCL。
+当前已删除专门的 CUDA/SYCL 文件及动态依赖拒绝规则，也不再重复执行产物审计。
+发布校验保留来源 run、构建提交、平台、架构、必需模块及 ABI；Linux 保留 manylinux_2_28 下限检查。
 本地移除阶段完成源码、CI 配置、文档及本机验证；随后提交 `eff00ce` 的六平台完整 CI 全部成功。
 未发布新版本，旧 SYCL 候选继续保留为历史证据。
 
@@ -32,6 +33,8 @@ SYCL 设备适用性、SDK 路径、初始化错误传播及 Windows AOT 四个�
 - 支持配置仅为 auto/cpu/vulkan/metal；sycl/cuda 配置始终报错，包括零层卸载。
 
 ## 本轮本机验证（移除 SYCL）
+
+本节保存移除 SYCL 时的历史验证结果；其中旧产物拒绝规则后来已按上述范围删除。
 
 本机 Apple M4，Python 3.14.4。使用指定 `.venv4` 构建，在独立目录安装新 wheel，
 原先环境中的 `mineru-llama-cpp` 安装未被替换。最终候选为

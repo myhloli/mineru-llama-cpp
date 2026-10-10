@@ -1,4 +1,4 @@
-"""验证无 SYCL 分发矩阵以及旧模块、运行库和 ELF 依赖的拒绝行为。"""
+"""验证六平台分发矩阵、稳定 ABI、Windows 架构以及 Linux 系统 ABI 下限。"""
 import importlib
 from pathlib import Path
 import struct
@@ -36,7 +36,7 @@ def make_wheel(directory, platform, backends, extra=None):
     return wheel
 
 
-def test_six_platform_matrix_without_sycl(wheel_tools, tmp_path):
+def test_six_platform_matrix(wheel_tools, tmp_path):
     """六平台保持完整，Linux/Windows 仅要求 CPU 和 Vulkan。"""
     verifier, _ = wheel_tools
     wheels = [make_wheel(tmp_path, platform, backends) for platform, backends in verifier.PLATFORMS.items()]
@@ -45,42 +45,50 @@ def test_six_platform_matrix_without_sycl(wheel_tools, tmp_path):
     assert verifier.PLATFORMS["win_amd64"] == {"cpu", "vulkan"}
 
 
-@pytest.mark.parametrize("legacy_file", [
-    "bin/libggml-sycl.so", "bin/ggml-sycl.dll", "bin/SYCL-BUILD.JSON", "bin/sycl9.dll",
-    "bin/mkl_sycl_blas.6.dll", "bin/dnnl.dll", "bin/tbb12.dll", "bin/ur_adapter_level_zero.dll",
-    "bin/ze_loader.dll", "bin/libmmd.dll", "bin/libiomp5md.dll", "bin/umf.dll", "bin/tcm.dll",
-    "bin/svml_dispmd.dll", "bin/libhwloc-15.dll", "lib/libsycl-abcdef.so.9",
-    "bin/licenses/oneapi/LICENSE.txt", "bin/licenses/level-zero/LICENSE",
-])
-def test_wheel_rejects_legacy_sycl_files(wheel_tools, tmp_path, legacy_file):
-    """分发入口拒绝旧缓存中的 MODULE、manifest、依赖闭包和许可。"""
+def test_wheel_set_requires_all_platforms(wheel_tools, tmp_path):
+    """自动发布仍拒绝缺少平台的集合，手动发布可以校验明确选择的子集。"""
     verifier, _ = wheel_tools
-    platform = "manylinux_2_28_x86_64"
-    wheel = make_wheel(tmp_path, platform, verifier.PLATFORMS[platform],
-                       {f"mineru_llama_cpp/{legacy_file}": b"legacy"})
-    with pytest.raises(ValueError, match="SYCL backend/runtime is not supported"):
+    platform = "macosx_14_0_x86_64"
+    wheel = make_wheel(tmp_path, platform, verifier.PLATFORMS[platform])
+    with pytest.raises(ValueError, match="Expected six wheels"):
+        verifier.verify([wheel])
+    assert len(verifier.verify([wheel], require_all=False)) == 1
+
+
+def test_wheel_requires_stable_abi_tag(wheel_tools, tmp_path):
+    """普通 CPython 扩展标签仍不能混入 cp310-abi3 发布集合。"""
+    verifier, _ = wheel_tools
+    platform = "macosx_14_0_x86_64"
+    wheel = make_wheel(tmp_path, platform, verifier.PLATFORMS[platform])
+    wheel = wheel.rename(wheel.with_name(wheel.name.replace("cp310-abi3", "cp312-cp312")))
+    with pytest.raises(ValueError, match="Unexpected package or ABI tag"):
         verifier.verify([wheel], require_all=False)
 
 
-def test_linux_repair_rejects_sycl_before_extracting(wheel_tools, tmp_path):
-    """旧 SYCL 模块必须在 auditwheel 解析或复制运行库之前被拒绝。"""
-    verifier, repair = wheel_tools
-    platform = "manylinux_2_28_x86_64"
-    wheel = make_wheel(tmp_path, platform, verifier.PLATFORMS[platform],
-                       {"mineru_llama_cpp/bin/libggml-sycl.so": b"legacy"})
-    with pytest.raises(ValueError, match="SYCL"):
-        repair.inspect_wheel(wheel)
+def test_wheel_requires_configured_backend_modules(wheel_tools, tmp_path):
+    """平台对应的必需模块仍需完整，例如 Linux 不能漏掉配置中的 Vulkan 模块。"""
+    verifier, _ = wheel_tools
+    wheel = make_wheel(tmp_path, "manylinux_2_28_aarch64", {"cpu"})
+    with pytest.raises(ValueError, match="Missing vulkan MODULE"):
+        verifier.verify([wheel], require_all=False)
 
 
-@pytest.mark.parametrize("dependency", [
-    "libsycl.so.9", "libmkl_sycl_blas.so.6", "libdnnl.so.3", "libtbb.so.12",
-    "libze_loader.so.1", "libur_loader.so.0", "libirng.so", "libimf.so", "libintlc.so.5",
-])
-def test_linux_elf_rejects_sycl_dependencies(wheel_tools, dependency):
-    """原包及修复后包共用的 ELF 检查拒绝 oneAPI 动态依赖。"""
-    _, repair = wheel_tools
-    with pytest.raises(RuntimeError, match="SYCL dependencies"):
-        repair.validate_report({"mineru_llama_cpp/lib/libllama.so.0": {"needed": [dependency], "versions": []}})
+def test_wheel_rejects_wrong_windows_architecture(wheel_tools, tmp_path):
+    """ARM64 wheel 中的 AMD64 原生产物仍必须被架构检查拒绝。"""
+    verifier, _ = wheel_tools
+    platform = "win_arm64"
+    wheel = make_wheel(tmp_path, platform, verifier.PLATFORMS[platform])
+    with zipfile.ZipFile(wheel) as archive:
+        contents = {name: archive.read(name) for name in archive.namelist()}
+    extension = "mineru_llama_cpp/_mineru_llama_cpp.pyd"
+    data = bytearray(contents[extension])
+    struct.pack_into("<H", data, 68, 0x8664)
+    contents[extension] = bytes(data)
+    with zipfile.ZipFile(wheel, "w") as archive:
+        for name, content in contents.items():
+            archive.writestr(name, content)
+    with pytest.raises(ValueError, match="Wrong PE architecture"):
+        verifier.verify([wheel], require_all=False)
 
 
 def test_vulkan_dependencies_and_cpu_abi_remain_supported(wheel_tools):

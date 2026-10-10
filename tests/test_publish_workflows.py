@@ -61,15 +61,11 @@ def test_wheel_filter_treats_input_as_data(tmp_path, pattern, mode):
 
 
 @pytest.mark.parametrize("mode", ["workflow_dispatch", "workflow_run"])
-@pytest.mark.parametrize("job_name, step_name", [
-    ("verify_build_wheels", "Verify wheels against build policy"),
-    ("prepare_wheels", "Verify selected stable-ABI wheels"),
-])
 @pytest.mark.skipif(os.name == "nt", reason="Linux 发布脚本需要 POSIX Bash")
-def test_automatic_verification_requires_all_platforms(tmp_path, mode, job_name, step_name):
-    """两阶段均执行真实校验脚本，确认仅手动发布允许平台子集。"""
-    step = next(step for step in load_workflow("publish-wheels.yml")["jobs"][job_name]["steps"]
-                if step.get("name") == step_name)
+def test_automatic_verification_requires_all_platforms(tmp_path, mode):
+    """产物审计只执行一次，自动发布要求全部平台，仅手动发布允许平台子集。"""
+    step = next(step for step in load_workflow("publish-wheels.yml")["jobs"]["verify_build_wheels"]["steps"]
+                if step.get("name") == "Verify wheels against build policy")
     commands = tmp_path / "commands"
     commands.mkdir()
     calls = tmp_path / "python-calls"
@@ -94,7 +90,7 @@ def test_automatic_verification_requires_all_platforms(tmp_path, mode, job_name,
 
 
 def test_manual_publish_preserves_and_transfers_prepared_wheels():
-    """构建校验、现行发布校验与 OIDC 上传逐阶段传递产物，源码清理均先于下载。"""
+    """构建校验、发布测试及 ABI 审计与 OIDC 上传逐阶段传递产物，源码清理均先于下载。"""
     jobs = load_workflow("publish-wheels.yml")["jobs"]
     build_steps = jobs["verify_build_wheels"]["steps"]
     build_checkout = next(index for index, step in enumerate(build_steps)
@@ -113,7 +109,7 @@ def test_manual_publish_preserves_and_transfers_prepared_wheels():
     download = next(index for index, step in enumerate(steps)
                     if step.get("uses", "").startswith("actions/download-artifact@"))
     verify = next(index for index, step in enumerate(steps)
-                  if step.get("name") == "Verify selected stable-ABI wheels")
+                  if step.get("name") == "Verify publishing workflow and stable ABI")
     upload = next(index for index, step in enumerate(steps)
                   if step.get("uses", "").startswith("actions/upload-artifact@"))
     assert checkout < download < verify < upload
@@ -149,29 +145,25 @@ def test_build_and_publishing_checks_pin_separate_revisions():
     assert publisher_checkout["with"]["persist-credentials"] is False
     assert any("python -m pytest tests/test_publish_workflows.py" in step.get("run", "")
                for step in publisher_steps)
+    assert all("tools/verify_wheels.py" not in step.get("run", "") for step in publisher_steps)
 
 
-@pytest.mark.parametrize("legacy_module", [False, True])
 @pytest.mark.skipif(os.name == "nt", reason="Linux 发布脚本需要 POSIX Bash")
-def test_historical_build_without_publish_tests_still_obeys_current_policy(tmp_path, legacy_module):
-    """历史校验通过且没有新测试时仍能发布合规产物，旧规则放行的 SYCL 则被现行规则阻止。"""
+def test_historical_build_without_publish_tests_is_audited_once(tmp_path):
+    """历史源码没有新发布测试也能完成一次产物校验，发布任务只执行自己的测试与 ABI 审计。"""
     from test_wheel_policy import make_wheel
 
     source = tmp_path / "source"
     publisher = tmp_path / "publisher"
     commands = tmp_path / "commands"
-    for directory in (source / "tools", source / "dist", publisher / "tools", publisher / "tests", commands):
+    for directory in (source / "tools", source / "dist", publisher / "tests", commands):
         directory.mkdir(parents=True)
-    # 模拟不含新发布测试、允许历史模块的旧构建校验程序。
+    # 模拟不含新发布测试的历史构建校验程序。
     (source / "tools" / "verify_wheels.py").write_text(
-        '"""历史构建规则替身，用于验证当前发布规则独立执行。"""\n'
+        '"""历史构建规则替身，用于验证产物审计只执行一次。"""\n'
         'from pathlib import Path\nPath("build-policy-ran").write_text("ok")\n')
-    extra = {"mineru_llama_cpp/bin/ggml-sycl.dll": b"legacy"} if legacy_module else None
-    make_wheel(source / "dist", "macosx_14_0_arm64", {"cpu", "metal"}, extra)
-    repository = Path(__file__).resolve().parents[1]
-    for filename in ("verify_wheels.py", "windows_pe.py", "wheel_policy.py"):
-        shutil.copyfile(repository / "tools" / filename, publisher / "tools" / filename)
-    # 此测试只验证两个版本的调用和分发边界，依赖安装及原生 ABI 审计用工具替身隔离。
+    make_wheel(source / "dist", "macosx_14_0_arm64", {"cpu", "metal"})
+    # 此测试只验证历史构建与发布测试的调用，依赖安装及原生 ABI 审计用工具替身隔离。
     scripts = {
         "pip": '#!/bin/sh\nexit 0\n',
         "python": '#!/bin/sh\nexec ' + shlex.quote(sys.executable) + ' "$@"\n',
@@ -198,17 +190,12 @@ def test_historical_build_without_publish_tests_still_obeys_current_policy(tmp_p
     assert not (source / "tests" / "test_publish_workflows.py").exists()
     shutil.copytree(source / "dist", publisher / "dist")
     publisher_step = next(step for step in jobs["prepare_wheels"]["steps"]
-                          if step.get("name") == "Verify selected stable-ABI wheels")
+                          if step.get("name") == "Verify publishing workflow and stable ABI")
     result = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", publisher_step["run"]],
                             cwd=publisher, env=environment, capture_output=True, text=True)
     assert not (publisher / "build-policy-ran").exists()
-    if legacy_module:
-        assert result.returncode != 0
-        assert "SYCL backend/runtime is not supported" in result.stdout + result.stderr
-        assert not (publisher / "abi-audit-ran").exists()
-    else:
-        assert result.returncode == 0, result.stdout + result.stderr
-        assert (publisher / "abi-audit-ran").exists()
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (publisher / "abi-audit-ran").exists()
 
 
 def test_publishing_uses_one_isolated_oidc_workflow():

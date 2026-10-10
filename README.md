@@ -101,9 +101,9 @@ CPU. Explicit `vulkan` selection raises an error when unavailable.
 
 Release CI prepares a fixed Vulkan SDK and builds its backend together with
 the ggml core. No oneAPI toolkit, SYCL runtime or Level Zero SDK is used.
-The aggregate release check requires exactly six wheels and rejects legacy
-CUDA/SYCL modules and runtimes. The macOS build still includes the Xcode 16.4
-compatibility check.
+The aggregate release check requires exactly six wheels and verifies their
+platforms, architectures, ABI tags and required modules. The macOS build
+still includes the Xcode 16.4 compatibility check.
 
 ### PyPI publishing
 
@@ -133,11 +133,11 @@ applies `wheel_glob` as a literal shell argument, audits the selected subset,
 and transfers only those wheels to the publishing job. Both paths verify
 the source run's workflow, repository and successful completion before
 downloading artifacts.
-The first audit checks out the source run's exact `head_sha` and applies its
-build policy. A separate job checks out the publishing workflow's own commit
-for publishing tests, current distribution rules and strict ABI auditing.
-Historical runs do not need to contain newer publishing tests; their wheels
-must still satisfy the current CUDA/SYCL exclusions before uploading.
+The artifact audit checks out the source run's exact `head_sha` and applies
+its build policy once. A separate job checks out the publishing workflow's
+own commit for publishing tests and strict ABI auditing. Historical runs do
+not need to contain newer publishing tests. No additional CUDA/SYCL file or
+dependency denylist is applied.
 
 ## Install (development)
 

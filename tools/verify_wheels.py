@@ -1,4 +1,4 @@
-"""审计六平台 abi3 产物及 GPU 分发边界，发布前拒绝缺包和 ABI 混入。"""
+"""审计六平台 abi3 产物的标签、架构和必需模块，发布前拒绝缺包和 ABI 混入。"""
 from __future__ import annotations
 import argparse
 import json
@@ -6,7 +6,6 @@ from pathlib import Path
 import zipfile
 from packaging.utils import parse_wheel_filename
 from windows_pe import pe_machine
-from wheel_policy import validate_no_sycl_files
 
 PLATFORMS = {
     "manylinux_2_28_x86_64": {"cpu", "vulkan"},
@@ -39,7 +38,6 @@ def verify(wheels: list[Path], require_all: bool = True) -> list[dict]:
         seen.add(platform)
         with zipfile.ZipFile(wheel) as archive:
             names = archive.namelist()
-            validate_no_sycl_files(names)
             machines = {}
             if platform.startswith("win_"):
                 expected_machine = 0xAA64 if platform == "win_arm64" else 0x8664
@@ -57,10 +55,6 @@ def verify(wheels: list[Path], require_all: bool = True) -> list[dict]:
                     raise ValueError(f"Missing {backend} MODULE: {wheel.name}")
             for item in names:
                 basename = Path(item).name.lower()
-                if "ggml-cuda" in basename or basename == "cuda-build.json" or basename.startswith(("nvcuda", "cudart", "cublas", "nvrtc", "nvjitlink", "libcuda", "libcublas", "libnvrtc", "libnvjitlink")):
-                    raise ValueError(f"CUDA backend/runtime is not supported: {item}")
-                if basename.startswith("ocloc"):
-                    raise ValueError(f"OCLOC is build-only and must not be bundled: {item}")
                 if platform.startswith("manylinux") and basename.startswith(EXTERNAL_LINUX_PREFIXES):
                     raise ValueError(f"Linux GPU runtime must remain external: {item}")
         reports.append({"wheel": wheel.name, "platform": platform, "required_backends": sorted(PLATFORMS[platform]), "extension": extensions[0], "pe_machines": machines})

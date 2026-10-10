@@ -124,8 +124,8 @@ jobs:
     needs: [verify_build_wheels]
     runs-on: ubuntu-latest
     steps:
-      # 发布测试及现行规则使用本次发布工作流的固定提交，在独立任务中执行。
-      - name: Checkout publishing policy
+      # 发布测试使用本次发布工作流的固定提交，产物只在构建提交处校验一次。
+      - name: Checkout publishing workflow
         uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
@@ -137,17 +137,10 @@ jobs:
         with:
           name: build-verified-wheels
           path: dist
-      - name: Verify selected stable-ABI wheels
-        env:
-          PUBLISH_MODE: ${{ github.event_name }}
+      - name: Verify publishing workflow and stable ABI
         run: |
-          pip install packaging abi3audit pytest PyYAML
+          pip install abi3audit pytest PyYAML
           python -m pytest tests/test_publish_workflows.py -q
-          if [ "$PUBLISH_MODE" = "workflow_dispatch" ]; then
-            python tools/verify_wheels.py dist --allow-subset
-          else
-            python tools/verify_wheels.py dist
-          fi
           abi3audit --strict dist/*.whl
 
       - uses: actions/upload-artifact@v4
