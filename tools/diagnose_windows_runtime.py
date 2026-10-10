@@ -27,6 +27,9 @@ def main() -> None:
     package = Path(mineru_llama_cpp.__file__).parent
     report = {}
     handles = []
+    # 先加载 SYCL 主运行库，检查 oneMKL/oneDNN 的延迟导入是否依赖已加载模块。
+    handles.append(ctypes.WinDLL(str(package / "bin/sycl9.dll"), winmode=0x100 | 0x1000))
+    print("Preloaded sycl9.dll", flush=True)
     for path in sorted((package / "bin").glob("*.dll")):
         with pefile.PE(str(path)) as binary:
             imports = getattr(binary, "DIRECTORY_ENTRY_IMPORT", []) + getattr(binary, "DIRECTORY_ENTRY_DELAY_IMPORT", [])
@@ -39,7 +42,8 @@ def main() -> None:
         report[path.name] = {"needed": needed, "load_error": error}
         print(json.dumps({path.name: report[path.name]}), flush=True)
     (args.directory / "runtime-diagnostics.json").write_text(json.dumps(report, indent=2))
-    if any(item["load_error"] for item in report.values()):
+    # Vulkan loader 由显卡驱动提供，无显卡驱动的诊断机器可跳过该可选 MODULE。
+    if any(item["load_error"] for name, item in report.items() if name != "ggml-vulkan.dll"):
         raise RuntimeError("Packaged DLL loading failed; see runtime-diagnostics.json")
 
 
